@@ -1,0 +1,16 @@
+[project]
+name = "code"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "deap>=1.4.3",
+    "lime>=0.2.0.1",
+    "numpy>=2.3.3",
+    "pandas>=2.3.3",
+    "plotly>=6.5.1",
+    "scikit-learn>=1.7.2",
+    "scikit-optimize>=0.10.2",
+    "streamlit>=1.52.2",
+]
