@@ -36,6 +36,10 @@ PARAM_SPACE = {
         "C": Real(1e-2, 1e2, prior="log-uniform", name="classifier__C"),
         "gamma": Real(1e-3, 1e2, prior="log-uniform", name="classifier__gamma"),
     },
+    "DecisionTreeClassifier": {
+        "max_depth": Integer(3, 15, name="classifier__max_depth"),
+        "min_samples_split": Integer(2, 10, name="classifier__min_samples_split"),
+    },
 }
 
 
@@ -43,6 +47,18 @@ class BayesianOptimizer:
     def __init__(self, X, y, pipeline_steps, param_space):
         self.X = X
         self.y = y
+        self.pipeline = Pipeline(
+            [
+                ("vectorizer", pipeline_steps[0][1]()),
+                ("classifier", pipeline_steps[1][1]()),
+            ]
+        )
+        self.search_space = []
+
+        if hasattr(self.pipeline.named_steps["vectorizer"], "ngram_range"):
+            self.search_space.append(
+                Categorical(["1,1", "1,2"], name="vectorizer__ngram_range")
+            )
 
         # Unpack the pipeline steps to get the classes
         vec_class = pipeline_steps[0][1]
@@ -51,7 +67,7 @@ class BayesianOptimizer:
         # Instantiate the classifier differently based on its type
         if clf_class == SVC:
             # If it's an SVC, enable probability estimates
-            classifier_instance = clf_class(probability=True)
+            classifier_instance = clf_class(probability=True, max_iter=5000)
         else:
             # For all other classifiers, instantiate normally
             classifier_instance = clf_class()
@@ -64,21 +80,50 @@ class BayesianOptimizer:
             ]
         )
 
+        # Build search space: vectorizer params + classifier params
+        vec_name = vec_class.__name__
+        clf_name = clf_class.__name__
+
+        # Add vectorizer parameters
+        if vec_name in param_space:
+            for param_name, param_space_obj in param_space[vec_name].items():
+                self.search_space.append(param_space_obj)
+
+        # Add classifier parameters
+        if clf_name in param_space:
+            for param_name, param_space_obj in param_space[clf_name].items():
+                self.search_space.append(param_space_obj)
+
+        # Convert to tuple for skopt
+        self.search_space = tuple(self.search_space)
+
         # Combine the parameter spaces for the chosen algorithms
-        self.search_space = (
-            param_space[vec_class.__name__]["ngram_range"],
-            param_space[vec_class.__name__]["max_df"],
-            param_space[vec_class.__name__]["min_df"],
-            param_space[clf_class.__name__]["C"],
-        )
+        # if clf_class.__name__ not in param_space:
+        #     self.search_space = (
+        #         param_space[vec_class.__name__]["ngram_range"],
+        #         param_space[vec_class.__name__]["max_df"],
+        #         param_space[vec_class.__name__]["min_df"],
+        #     )
+        #     return
+        # self.search_space = (
+        #     param_space[vec_class.__name__]["ngram_range"],
+        #     param_space[vec_class.__name__]["max_df"],
+        #     param_space[vec_class.__name__]["min_df"],
+        #     param_space[clf_class.__name__]["C"],
+        # )
 
         # Add gamma only if the classifier is SVC
-        if clf_class == SVC:
-            self.search_space += (param_space[SVC.__name__]["gamma"],)
+        # if clf_class == SVC:
+        #     self.search_space += (param_space[SVC.__name__]["gamma"],)
 
     def _objective(self, **params):
-        ngram_str = params["vectorizer__ngram_range"]
-        params["vectorizer__ngram_range"] = tuple(map(int, ngram_str.split(",")))
+        # Convert ngram_range string to tuple if present
+        if "vectorizer__ngram_range" in params:
+            ngram_str = params["vectorizer__ngram_range"]
+            params["vectorizer__ngram_range"] = tuple(map(int, ngram_str.split(",")))
+
+        # ngram_str = params["vectorizer__ngram_range"]
+        # params["vectorizer__ngram_range"] = tuple(map(int, ngram_str.split(",")))
 
         self.pipeline.set_params(**params)
 
@@ -87,8 +132,8 @@ class BayesianOptimizer:
                 self.pipeline,
                 self.X,
                 self.y,
-                cv=3,
-                n_jobs=-1,  # Use all available CPU cores
+                cv=2,
+                n_jobs=1,
                 scoring="accuracy",
             )
         )
@@ -96,13 +141,39 @@ class BayesianOptimizer:
         # skopt minimizes functions, so we return 1.0 - accuracy
         return 1.0 - score
 
-    def run(self, n_calls=20):
+    def run(self, n_calls=15):
+        if len(self.search_space) == 0:
+            # No hyperparameters to tune
+            score = np.mean(
+                cross_val_score(
+                    self.pipeline,
+                    self.X,
+                    self.y,
+                    cv=2,
+                    scoring="accuracy",
+                    n_jobs=1,
+                )
+            )
+            return {}, score, 0.0
+
         print(
             f"🚀 Starting Bayesian Optimization for pipeline: {self.pipeline.steps[0][1].__class__.__name__} -> {self.pipeline.steps[1][1].__class__.__name__}"
         )
         print(
             f"   Searching over {len(self.search_space)} hyperparameters for {n_calls} iterations..."
         )
+
+        if not self.search_space:
+            # No tunable params, just fit once and get accuracy
+            print("   No hyperparameters to tune, evaluating with defaults...")
+            self.pipeline.fit(self.X, self.y)
+            acc = np.mean(
+                cross_val_score(
+                    self.pipeline, self.X, self.y, cv=2, scoring="accuracy", n_jobs=-1
+                )
+            )
+            print("✅ Optimization finished!")
+            return {}, acc, 0.0
 
         # We need a decorated version of the objective function
         # that can handle named arguments from the search space.
@@ -116,6 +187,7 @@ class BayesianOptimizer:
             n_calls=n_calls,
             random_state=42,
             verbose=False,
+            n_jobs=1,
         )
 
         print("✅ Optimization finished!")
@@ -125,41 +197,3 @@ class BayesianOptimizer:
         score_variance = np.var(result.func_vals)
 
         return best_params, best_score, score_variance
-
-
-# -----------------------------------------------------------------------------
-# 3. PUTTING IT ALL TOGETHER: EXAMPLE USAGE
-# -----------------------------------------------------------------------------
-if __name__ == "__main__":
-    # Load sample data
-    categories = ["sci.med", "sci.space"]
-    newsgroups_train = fetch_20newsgroups(
-        subset="train", categories=categories, shuffle=True, random_state=42
-    )
-    X_train = newsgroups_train.data
-    y_train = newsgroups_train.target
-
-    # This is the "winning" pipeline from our GA run.
-    # We are providing the *classes* themselves, not instances.
-    best_pipeline_from_ga = [("vectorizer", TfidfVectorizer), ("classifier", SVC)]
-
-    # 1. Initialize the optimizer with the data and the pipeline structure
-    bo_optimizer = BayesianOptimizer(
-        X=X_train,
-        y=y_train,
-        pipeline_steps=best_pipeline_from_ga,
-        param_space=PARAM_SPACE,
-    )
-
-    # 2. Run the optimization
-    best_hyperparams, best_accuracy = bo_optimizer.run(
-        n_calls=25
-    )  # More calls = better, but slower
-
-    # 3. Print the final results
-    print("\n" + "=" * 50)
-    print("🏆 Best Hyperparameters Found 🏆")
-    for param, value in best_hyperparams.items():
-        print(f"  - {param}: {value}")
-    print(f"\n  - Best Cross-Validated Accuracy: {best_accuracy:.4f}")
-    print("=" * 50)

@@ -52,8 +52,14 @@ class GeneticAlgorithm:
 
         # This sets up the fitness and individual "blueprints" for DEAP.
         # To MAXIMIZE accuracy, use weights=(1.0,).
-        creator.create("FitnessMax", base.Fitness, weights=(1.0,))
-        creator.create("Individual", list, fitness=creator.FitnessMax)
+        # Only create if it doesn't already exist
+        if not hasattr(creator, "FitnessMax"):
+            creator.create("FitnessMax", base.Fitness, weights=(1.0,))
+        if not hasattr(creator, "Individual"):
+            creator.create("Individual", list, fitness=creator.FitnessMax)
+
+        # creator.create("FitnessMax", base.Fitness, weights=(1.0,))
+        # creator.create("Individual", list, fitness=creator.FitnessMax)
 
         self._setup_deap()
 
@@ -70,10 +76,13 @@ class GeneticAlgorithm:
             # Give different models different parameters if needed
             if classifier_gene == SVC:
                 classifier_instance = classifier_gene(
-                    max_iter=5000
+                    max_iter=5000,
                 )  # Give SVC more iterations
-            else:
+            elif classifier_gene == LogisticRegression:
                 classifier_instance = classifier_gene(max_iter=1000)
+            else:
+                # DecisionTreeClassifier doesn't have max_iter
+                classifier_instance = classifier_gene()
 
             pipeline_steps = [
                 ("vectorizer", vectorizer_instance),
@@ -161,38 +170,3 @@ class GeneticAlgorithm:
 
         # Return the single best individual from the Hall of Fame
         return hof[0]
-
-
-# -----------------------------------------------------------------------------
-# 3. PUTTING IT ALL TOGETHER: EXAMPLE USAGE
-# -----------------------------------------------------------------------------
-if __name__ == "__main__":
-    # Load a sample dataset
-    # We use a small subset for a quick demonstration.
-    categories = ["sci.med", "sci.space"]
-    newsgroups_train = fetch_20newsgroups(
-        subset="train", categories=categories, shuffle=True, random_state=42
-    )
-
-    X_train = newsgroups_train.data
-    y_train = newsgroups_train.target
-
-    print(f"Loaded {len(X_train)} documents from 2 categories.")
-    # 1. Initialize our Genetic Algorithm class
-    ga_optimizer = GeneticAlgorithm(X=X_train, y=y_train, gene_pool=GENE_POOL)
-
-    # 2. Run the optimization process
-    best_individual = ga_optimizer.run(
-        ngen=5, pop_size=10
-    )  # Small values for a quick demo
-
-    # 3. Decode and print the best pipeline found
-    best_vectorizer = GENE_POOL[0][best_individual[0]]
-    best_classifier = GENE_POOL[1][best_individual[1]]
-
-    print("\n" + "+" * 50)
-    print("🏆 Best Pipeline Found 🏆")
-    print(f"  - Vectorizer: {best_vectorizer.__name__}")
-    print(f"  - Classifier: {best_classifier.__name__}")
-    print(f"  - Fitness (Accuracy): {best_individual.fitness.values[0]:.4f}")
-    print("=" * 50)
