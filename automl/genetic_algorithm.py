@@ -32,14 +32,12 @@ from deap import base, creator, tools, algorithms
 SEARCH_SPACE = {
     "vectorizer": [TfidfVectorizer, CountVectorizer],
     "classifier": [LogisticRegression, DecisionTreeClassifier, SVC],
-    "interpretability_mode": ["in_situ", "post_hoc", "mixed"],
 }
 
 # For DEAP, convert to a list of lists of choices to create "genes".
 GENE_POOL = [
     SEARCH_SPACE["vectorizer"],
     SEARCH_SPACE["classifier"],
-    SEARCH_SPACE["interpretability_mode"],
 ]
 
 

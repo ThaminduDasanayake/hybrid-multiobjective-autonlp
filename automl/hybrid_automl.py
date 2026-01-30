@@ -44,7 +44,6 @@ class HybridAutoML:
         try:
             vectorizer_class = self.gene_pool[0][individual[0]]
             classifier_class = self.gene_pool[1][individual[1]]
-            mode_name = self.gene_pool[2][individual[2]]  # "in_situ"/"post_hoc"/"mixed"
 
             print(
                 f"\nEvaluating structure: {vectorizer_class.__name__} -> {classifier_class.__name__}"
@@ -66,10 +65,12 @@ class HybridAutoML:
             # 3. Run BO to find the best hyperparameters and score
             best_params, best_accuracy, bo_variance = bo.run(n_calls=15)
 
-            if bo_variance > 0:
-                stability_score = 1.0 / (1.0 + bo_variance)
-            else:
-                stability_score = 0.5
+            stability_score = 1.0 / (1.0 + bo_variance)
+
+            # if bo_variance > 0:
+            #     stability_score = 1.0 / (1.0 + bo_variance)
+            # else:
+            #     stability_score = 0.5
 
             # 4. Decode the ngram_range from the returned best_params dictionary
             if "vectorizer__ngram_range" in best_params:
@@ -120,16 +121,16 @@ class HybridAutoML:
                 if pipeline.named_steps["classifier"].get_depth() > 6:
                     interpretability_score *= 0.8
 
-            if mode_name == "in_situ":
-                # soft bonus: add +0.1 to interpretability_score if classifier is in interpretable set
-                if classifier_class in (LogisticRegression, DecisionTreeClassifier):
-                    interpretability_score = min(1.0, interpretability_score + 0.1)
-                else:
-                    # impose penalty
-                    interpretability_score *= 0.5
+            # if mode_name == "in_situ":
+            #     # soft bonus: add +0.1 to interpretability_score if classifier is in interpretable set
+            #     if classifier_class in (LogisticRegression, DecisionTreeClassifier):
+            #         interpretability_score = min(1.0, interpretability_score + 0.1)
+            #     else:
+            #         # impose penalty
+            #         interpretability_score *= 0.5
 
             print(
-                f"  --> Result: Accuracy={best_accuracy:.4f}, Efficiency={efficiency_score:.4f}, Interpretability={interpretability_score:.4f}"
+                f"Result: Accuracy={best_accuracy:.4f}, Efficiency={efficiency_score:.4f}, Interpretability={interpretability_score:.4f}"
             )
 
             return (
@@ -212,7 +213,7 @@ class HybridAutoML:
         mutation_probability=0.2,
     ):
         """Runs the full AutoML evolution."""
-        print("🚀 Starting Hybrid AutoML Search...")
+        print("Starting Hybrid AutoML Search...")
 
         population = self.toolbox.population(n=population_size)
 
@@ -230,19 +231,7 @@ class HybridAutoML:
             verbose=True,
         )
 
-        algorithms.eaMuPlusLambda(
-            population,
-            self.toolbox,
-            mu=population_size,
-            lambda_=population_size,
-            cxpb=crossover_probability,
-            mutpb=mutation_probability,
-            ngen=ngen,
-            halloffame=pareto_front,
-            verbose=True,
-        )
-
-        print("✅ AutoML search finished!")
+        print("AutoML search finished!")
         # return pareto_front
         results = []
 
@@ -251,7 +240,7 @@ class HybridAutoML:
                 {
                     "vectorizer": self.gene_pool[0][sol[0]].__name__,
                     "classifier": self.gene_pool[1][sol[1]].__name__,
-                    "mode": self.gene_pool[2][sol[2]],
+                    # "mode": self.gene_pool[2][sol[2]],
                     "accuracy": sol.fitness.values[0],
                     "efficiency": sol.fitness.values[1],
                     "interpretability": sol.fitness.values[2],

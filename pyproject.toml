@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "datasets>=4.5.0",
     "deap>=1.4.3",
     "lime>=0.2.0.1",
     "numpy>=2.3.3",
