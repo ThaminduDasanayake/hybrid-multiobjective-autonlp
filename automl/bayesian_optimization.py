@@ -4,6 +4,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import cross_val_score
+from sklearn.linear_model import LogisticRegression
+
 
 from skopt import gp_minimize
 from skopt.space import Real, Integer, Categorical
@@ -47,18 +49,19 @@ class BayesianOptimizer:
     def __init__(self, X, y, pipeline_steps, param_space):
         self.X = X
         self.y = y
-        self.pipeline = Pipeline(
-            [
-                ("vectorizer", pipeline_steps[0][1]()),
-                ("classifier", pipeline_steps[1][1]()),
-            ]
-        )
         self.search_space = []
 
-        if hasattr(self.pipeline.named_steps["vectorizer"], "ngram_range"):
-            self.search_space.append(
-                Categorical(["1,1", "1,2"], name="vectorizer__ngram_range")
-            )
+        # self.pipeline = Pipeline(
+        #     [
+        #         ("vectorizer", pipeline_steps[0][1]()),
+        #         ("classifier", pipeline_steps[1][1]()),
+        #     ]
+        # )
+        #
+        # if hasattr(self.pipeline.named_steps["vectorizer"], "ngram_range"):
+        #     self.search_space.append(
+        #         Categorical(["1,1", "1,2"], name="vectorizer__ngram_range")
+        #     )
 
         # Unpack the pipeline steps to get the classes
         vec_class = pipeline_steps[0][1]
@@ -68,6 +71,11 @@ class BayesianOptimizer:
         if clf_class == SVC:
             # If it's an SVC, enable probability estimates
             classifier_instance = clf_class(probability=True, max_iter=5000)
+        elif clf_class == LogisticRegression:
+            # FIX: LogisticRegression needs high max_iter for text data
+            # Text data creates high-dimensional feature spaces (thousands of features)
+            # Default max_iter=100 is too low, causing convergence warnings
+            classifier_instance = clf_class(max_iter=2000)
         else:
             # For all other classifiers, instantiate normally
             classifier_instance = clf_class()
@@ -132,8 +140,8 @@ class BayesianOptimizer:
                 self.pipeline,
                 self.X,
                 self.y,
-                cv=2,
-                n_jobs=1,
+                cv=2,  # change to 5
+                n_jobs=-1,  # change to 1 later
                 scoring="accuracy",
             )
         )
@@ -141,9 +149,9 @@ class BayesianOptimizer:
         # skopt minimizes functions, so we return 1.0 - accuracy
         return 1.0 - score
 
-    def run(self, n_calls=15):
+    def run(self, n_calls=5):  # change to 15
         if len(self.search_space) == 0:
-            # No hyperparameters to tune
+            print("   No hyperparameters to tune, evaluating with defaults...")
             score = np.mean(
                 cross_val_score(
                     self.pipeline,
@@ -157,23 +165,23 @@ class BayesianOptimizer:
             return {}, score, 0.0
 
         print(
-            f"🚀 Starting Bayesian Optimization for pipeline: {self.pipeline.steps[0][1].__class__.__name__} -> {self.pipeline.steps[1][1].__class__.__name__}"
+            f"Starting Bayesian Optimization for pipeline: {self.pipeline.steps[0][1].__class__.__name__} -> {self.pipeline.steps[1][1].__class__.__name__}"
         )
         print(
-            f"   Searching over {len(self.search_space)} hyperparameters for {n_calls} iterations..."
+            f"Searching over {len(self.search_space)} hyperparameters for {n_calls} iterations..."
         )
 
-        if not self.search_space:
-            # No tunable params, just fit once and get accuracy
-            print("   No hyperparameters to tune, evaluating with defaults...")
-            self.pipeline.fit(self.X, self.y)
-            acc = np.mean(
-                cross_val_score(
-                    self.pipeline, self.X, self.y, cv=2, scoring="accuracy", n_jobs=-1
-                )
-            )
-            print("✅ Optimization finished!")
-            return {}, acc, 0.0
+        # if not self.search_space:
+        #     # No tunable params, just fit once and get accuracy
+        #     print("   No hyperparameters to tune, evaluating with defaults...")
+        #     self.pipeline.fit(self.X, self.y)
+        #     acc = np.mean(
+        #         cross_val_score(
+        #             self.pipeline, self.X, self.y, cv=2, scoring="accuracy", n_jobs=-1
+        #         )
+        #     )
+        #     print("✅ Optimization finished!")
+        #     return {}, acc, 0.0
 
         # We need a decorated version of the objective function
         # that can handle named arguments from the search space.
@@ -181,16 +189,20 @@ class BayesianOptimizer:
         def wrapped_objective(**params):
             return self._objective(**params)
 
+        # Adjust n_initial_points if n_calls is small (e.g. in Dev Mode)
+        n_initial_points = min(10, n_calls)
+
         result = gp_minimize(
             func=wrapped_objective,
             dimensions=self.search_space,
             n_calls=n_calls,
+            n_initial_points=n_initial_points,
             random_state=42,
             verbose=False,
             n_jobs=1,
         )
 
-        print("✅ Optimization finished!")
+        print("Optimization finished")
 
         best_params = {dim.name: val for dim, val in zip(result.space, result.x)}
         best_score = 1.0 - result.fun

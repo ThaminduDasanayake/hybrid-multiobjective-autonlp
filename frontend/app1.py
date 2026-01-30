@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -12,8 +13,8 @@ from automl.bayesian_optimization import PARAM_SPACE
 from automl.genetic_algorithm import GENE_POOL
 from automl.hybrid_automl import HybridAutoML
 
-from sklearn.datasets import fetch_20newsgroups
-from sklearn.model_selection import train_test_split
+from utils.data_loader import load_imdb, load_ag_news, load_banking77
+
 
 # Page setup
 st.set_page_config(layout="wide")
@@ -22,15 +23,18 @@ st.caption(
     "Human-centered, multi-objective AutoML for NLP. "
     "Optimizing accuracy, efficiency, and interpretability."
 )
+st.info(
+    "This system explores and compares alternative NLP pipelines under multiple constraints. "
+    "It does not recommend a single best model."
+)
 
 # Sidebar
 st.sidebar.header("AutoML Configuration")
 
 # Dataset selection
-dataset_choice = st.sidebar.selectbox(
-    "Select Dataset",
-    ["20 Newsgroups", "IMDB Reviews"],
-    help="Choose the NLP dataset for AutoML optimization",
+dataset_name = st.sidebar.selectbox(
+    "Dataset",
+    ["IMDb", "AG News", "Banking77"],
 )
 
 ngen = st.sidebar.slider("Generations", 2, 10, 4)
@@ -39,82 +43,21 @@ population_size = st.sidebar.slider("Population size", 4, 20, 6)
 run_button = st.sidebar.button("Run T-AutoNLP")
 
 
-# Load datasets
 @st.cache_data
-def load_20newsgroups():
-    """Load 20 Newsgroups dataset"""
-    categories = ["sci.med", "sci.space"]
-    data = fetch_20newsgroups(
-        subset="all", categories=categories, shuffle=True, random_state=42
-    )
-    X_train, _, y_train, _ = train_test_split(
-        data.data,
-        data.target,
-        train_size=0.5,
-        stratify=data.target,
-        random_state=42,
-    )
-    return X_train, y_train, "20 Newsgroups (sci.med vs sci.space)"
+def load_selected_dataset(name):
+    if name == "IMDb":
+        X_train, _, y_train, _ = load_imdb()
+    elif name == "AG News":
+        X_train, _, y_train, _ = load_ag_news()
+    elif name == "Banking77":
+        X_train, _, y_train, _ = load_banking77()
+    else:
+        raise ValueError("Unknown dataset")
+
+    return X_train, y_train
 
 
-@st.cache_data
-def load_imdb():
-    """Load IMDB Reviews dataset using sklearn's load_files"""
-    try:
-        from sklearn.datasets import load_files
-        import tempfile
-        import urllib.request
-        import tarfile
-        import os
-        import warnings
-
-        # Download and extract IMDB dataset
-        temp_dir = tempfile.mkdtemp()
-        url = "http://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz"
-
-        with st.spinner("Downloading IMDB dataset (this may take a moment)..."):
-            tar_path = os.path.join(temp_dir, "imdb.tar.gz")
-            urllib.request.urlretrieve(url, tar_path)
-
-            with tarfile.open(tar_path, "r:gz") as tar:
-                # Suppress the Python 3.14 deprecation warning
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", category=DeprecationWarning)
-                    tar.extractall(temp_dir)
-
-        # Load train data
-        train_data = load_files(
-            os.path.join(temp_dir, "aclImdb", "train"),
-            categories=["pos", "neg"],
-            shuffle=True,
-            random_state=42,
-        )
-
-        # Use subset for faster experimentation
-        X_train, _, y_train, _ = train_test_split(
-            train_data.data,
-            train_data.target,
-            train_size=0.3,  # Use 30% for speed
-            stratify=train_data.target,
-            random_state=42,
-        )
-
-        # Convert bytes to strings
-        X_train = [doc.decode("utf-8", errors="ignore") for doc in X_train]
-
-        return X_train, y_train, "IMDB Movie Reviews (positive vs negative)"
-
-    except Exception as e:
-        st.error(f"Failed to load IMDB dataset: {e}")
-        st.info("Falling back to 20 Newsgroups dataset")
-        return load_20newsgroups()
-
-
-# Load selected dataset
-if dataset_choice == "20 Newsgroups":
-    X_train, y_train, dataset_name = load_20newsgroups()
-else:
-    X_train, y_train, dataset_name = load_imdb()
+X_train, y_train = load_selected_dataset(dataset_name)
 
 # Display dataset info
 st.sidebar.markdown("---")
@@ -124,6 +67,45 @@ st.sidebar.info(
     f"Samples: {len(X_train)}\n\n"
     f"Classes: {len(set(y_train))}"
 )
+
+# --------------------------------------------------
+# Experiment persistence
+# --------------------------------------------------
+EXPERIMENT_DIR = Path("experiments")
+EXPERIMENT_DIR.mkdir(exist_ok=True)
+
+
+def save_run(results, dataset_name):
+    """Persist evaluated pipelines to CSV"""
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = f"run_{ts}"
+
+    rows = []
+    for r in results:
+        rows.append(
+            {
+                "run_id": run_id,
+                "dataset": dataset_name,
+                "vectorizer": r["vectorizer"],
+                "classifier": r["classifier"],
+                "accuracy": r["accuracy"],
+                "efficiency": r["efficiency"],
+                "interpretability": r["interpretability"],
+                "timestamp": ts,
+            }
+        )
+
+    df = pd.DataFrame(rows)
+    df.to_csv(EXPERIMENT_DIR / f"{run_id}.csv", index=False)
+    return run_id
+
+
+def load_all_runs():
+    """Load all historical runs"""
+    files = sorted(EXPERIMENT_DIR.glob("run_*.csv"))
+    if not files:
+        return pd.DataFrame()
+    return pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
 
 
 @st.cache_resource
@@ -143,27 +125,20 @@ def run_automl(X, y, ngen, population_size):
 if run_button:
     with st.spinner(f"Running multi-objective AutoML on {dataset_name}..."):
         try:
-            # automl = HybridAutoML(
-            #     X=X_train,
-            #     y=y_train,
-            #     gene_pool=GENE_POOL,
-            #     param_space=PARAM_SPACE,
-            # )
-
-            # results = automl.run(
-            #     ngen=ngen,
-            #     population_size=population_size,
-            # )
-
             results = run_automl(X_train, y_train, ngen, population_size)
 
+            run_id = save_run(results, dataset_name=dataset_name)
+
             st.session_state["results"] = results
+            st.session_state["last_run_id"] = run_id
+
             st.session_state["dataset_name"] = dataset_name
             st.session_state["X_train"] = X_train
             st.session_state["y_train"] = y_train
 
             st.success(
-                f"✅ AutoML finished on {dataset_name}. Found {len(results)} Pareto-optimal solutions."
+                f"AutoML finished on {dataset_name}. Found {len(results)} Pareto-optimal solutions. "
+                f"Run ID: {run_id}"
             )
         except Exception as e:
             st.error(f"❌ AutoML optimization failed: {e}")
@@ -300,7 +275,6 @@ if "results" in st.session_state:
         {
             "Vectorizer": selected.vectorizer,
             "Classifier": selected.classifier,
-            "Interpretability mode": selected["mode"],
         }
     )
 
@@ -444,3 +418,39 @@ else:
         - Convergence warnings for SVC are normal for text data
         """
         )
+
+st.divider()
+st.subheader("Search History & Exploration Summary")
+
+history_df = load_all_runs()
+
+if history_df.empty:
+    st.info("No previous search history found.")
+else:
+    total = len(history_df)
+
+    # Approximate dominance: treat last-run Pareto as non-dominated
+    pareto_df = pd.DataFrame(st.session_state.get("results", []))
+    pareto_count = len(pareto_df)
+    dominated = total - pareto_count
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total pipelines evaluated", total)
+    col2.metric("Pareto-optimal (current run)", pareto_count)
+    col3.metric("Dominated / discarded", dominated)
+
+    st.markdown("### Evaluated Pipelines (All Runs)")
+    st.dataframe(
+        history_df.sort_values(["accuracy", "interpretability"], ascending=False),
+        width=True,
+    )
+
+st.markdown("### Exploration Diversity")
+
+if "classifier" in history_df.columns and len(history_df) > 0:
+    st.bar_chart(
+        history_df["classifier"].value_counts(),
+        height=250,
+    )
+else:
+    st.info("No classifier data available yet. Run an experiment first.")
