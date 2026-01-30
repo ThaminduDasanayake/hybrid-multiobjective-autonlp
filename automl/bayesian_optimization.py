@@ -140,8 +140,8 @@ class BayesianOptimizer:
                 self.pipeline,
                 self.X,
                 self.y,
-                cv=2,
-                n_jobs=1,
+                cv=2,  # change to 5
+                n_jobs=-1,  # change to 1 later
                 scoring="accuracy",
             )
         )
@@ -149,7 +149,7 @@ class BayesianOptimizer:
         # skopt minimizes functions, so we return 1.0 - accuracy
         return 1.0 - score
 
-    def run(self, n_calls=15):
+    def run(self, n_calls=5):  # change to 15
         if len(self.search_space) == 0:
             print("   No hyperparameters to tune, evaluating with defaults...")
             score = np.mean(
@@ -189,10 +189,14 @@ class BayesianOptimizer:
         def wrapped_objective(**params):
             return self._objective(**params)
 
+        # Adjust n_initial_points if n_calls is small (e.g. in Dev Mode)
+        n_initial_points = min(10, n_calls)
+
         result = gp_minimize(
             func=wrapped_objective,
             dimensions=self.search_space,
             n_calls=n_calls,
+            n_initial_points=n_initial_points,
             random_state=42,
             verbose=False,
             n_jobs=1,

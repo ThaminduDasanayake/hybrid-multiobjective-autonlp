@@ -22,11 +22,12 @@ class HybridAutoML:
     of models. No post-hoc explanation methods are used in optimization.
     """
 
-    def __init__(self, X, y, gene_pool, param_space):
+    def __init__(self, X, y, gene_pool, param_space, n_bo_calls=15):
         self.X = X
         self.y = y
         self.gene_pool = gene_pool
         self.param_space = param_space  # The BO parameter space
+        self.n_bo_calls = n_bo_calls # Store the number of BO calls
         self.toolbox = base.Toolbox()
 
         # Three-objective optimization
@@ -63,7 +64,7 @@ class HybridAutoML:
             )
 
             # 3. Run BO to find the best hyperparameters and score
-            best_params, best_accuracy, bo_variance = bo.run(n_calls=15)
+            best_params, best_accuracy, bo_variance = bo.run(n_calls=self.n_bo_calls)
 
             stability_score = 1.0 / (1.0 + bo_variance)
 
@@ -94,7 +95,7 @@ class HybridAutoML:
 
             # Inference latency
             start = time.time()
-            pipeline.predict(self.X[:50])
+            pipeline.predict(self.X[:10])  # change to 50
             inference_time = time.time() - start
 
             # Memory proxy: vocabulary size
@@ -190,7 +191,7 @@ class HybridAutoML:
             "population", tools.initRepeat, list, self.toolbox.individual
         )
 
-        # CRUCIAL: Register the new, powerful evaluation function
+        # Register the new, powerful evaluation function
         self.toolbox.register("evaluate", self._evaluate_individual)
 
         self.toolbox.register("mate", tools.cxTwoPoint)

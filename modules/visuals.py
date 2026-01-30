@@ -49,6 +49,15 @@ def inspect_solution(df, X_train, y_train):
     """UI for selecting and explaining a specific pipeline."""
     st.subheader("Inspect Pareto-optimal Solution")
 
+    if "solution" not in df.columns:
+        st.error(
+            "Cannot inspect solutions - 'solution' data not available in loaded results."
+        )
+        st.info(
+            "This feature only works for newly run experiments, not loaded history."
+        )
+        return
+
     # Selection Widget
     idx = st.selectbox(
         "Select solution index",

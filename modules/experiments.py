@@ -11,13 +11,14 @@ EXPERIMENT_DIR.mkdir(exist_ok=True)
 
 
 @st.cache_resource
-def run_automl_process(X, y, ngen, population_size):
+def run_automl_process(X, y, ngen, population_size, n_bo_calls=15):
     """Runs the computationally expensive AutoML process."""
     automl = HybridAutoML(
         X=X,
         y=y,
         gene_pool=GENE_POOL,
         param_space=PARAM_SPACE,
+        n_bo_calls=n_bo_calls,
     )
     return automl.run(ngen=ngen, population_size=population_size)
 
