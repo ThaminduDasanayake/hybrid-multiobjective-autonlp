@@ -1,211 +1,282 @@
+import time
+from typing import Dict, Tuple, Any
 import numpy as np
-from sklearn.datasets import fetch_20newsgroups
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import cross_val_score
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.linear_model import LogisticRegression
-
-
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.svm import LinearSVC
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import cross_val_score
 from skopt import gp_minimize
 from skopt.space import Real, Integer, Categorical
 from skopt.utils import use_named_args
 
 
-# -----------------------------------------------------------------------------
-# 1. DEFINE THE HYPERPARAMETER SEARCH SPACE
-# -----------------------------------------------------------------------------
-# This dictionary maps each algorithm to its tunable hyperparameters.
-# We use scikit-optimize's 'space' dimensions for this.
-PARAM_SPACE = {
-    "TfidfVectorizer": {
-        "ngram_range": Categorical(["1,1", "1,2"], name="vectorizer__ngram_range"),
-        "max_df": Real(0.5, 1.0, name="vectorizer__max_df"),
-        "min_df": Integer(1, 5, name="vectorizer__min_df"),
-    },
-    "CountVectorizer": {
-        "ngram_range": Categorical(["1,1", "1,2"], name="vectorizer__ngram_range"),
-        "max_df": Real(0.5, 1.0, name="vectorizer__max_df"),
-        "min_df": Integer(1, 5, name="vectorizer__min_df"),
-    },
-    "LogisticRegression": {
-        "C": Real(1e-2, 1e2, prior="log-uniform", name="classifier__C"),
-        "penalty": Categorical(
-            ["l2"], name="classifier__penalty"
-        ),  # l1 requires different solver
-    },
-    "SVC": {
-        "C": Real(1e-2, 1e2, prior="log-uniform", name="classifier__C"),
-        "gamma": Real(1e-3, 1e2, prior="log-uniform", name="classifier__gamma"),
-    },
-    "DecisionTreeClassifier": {
-        "max_depth": Integer(3, 15, name="classifier__max_depth"),
-        "min_samples_split": Integer(2, 10, name="classifier__min_samples_split"),
-    },
-}
-
-
 class BayesianOptimizer:
-    def __init__(self, X, y, pipeline_steps, param_space):
-        self.X = X
-        self.y = y
-        self.search_space = []
+    """
+    Bayesian Optimization for hyperparameter tuning of NLP pipelines.
 
-        # self.pipeline = Pipeline(
-        #     [
-        #         ("vectorizer", pipeline_steps[0][1]()),
-        #         ("classifier", pipeline_steps[1][1]()),
-        #     ]
-        # )
-        #
-        # if hasattr(self.pipeline.named_steps["vectorizer"], "ngram_range"):
-        #     self.search_space.append(
-        #         Categorical(["1,1", "1,2"], name="vectorizer__ngram_range")
-        #     )
+    This class takes a pipeline configuration (vectorizer + model) and
+    optimizes its hyperparameters using Gaussian Process-based BO.
+    """
 
-        # Unpack the pipeline steps to get the classes
-        vec_class = pipeline_steps[0][1]
-        clf_class = pipeline_steps[1][1]
+    def __init__(self, n_calls: int = 20, cv: int = 3, random_state: int = 42):
+        """
+        Initialize the Bayesian Optimizer.
 
-        # Instantiate the classifier differently based on its type
-        if clf_class == SVC:
-            # If it's an SVC, enable probability estimates
-            classifier_instance = clf_class(probability=True, max_iter=5000)
-        elif clf_class == LogisticRegression:
-            # FIX: LogisticRegression needs high max_iter for text data
-            # Text data creates high-dimensional feature spaces (thousands of features)
-            # Default max_iter=100 is too low, causing convergence warnings
-            classifier_instance = clf_class(max_iter=2000)
+        Args:
+            n_calls: Number of BO iterations
+            cv: Number of cross-validation folds
+            random_state: Random seed for reproducibility
+        """
+        self.n_calls = n_calls
+        self.cv = cv
+        self.random_state = random_state
+
+        # Set numpy random seed
+        np.random.seed(random_state)
+
+    @staticmethod
+    def dataset_profile(X) -> str:
+        """
+        Profile dataset size for adaptive configuration.
+
+        Args:
+            X: Input data
+
+        Returns:
+            Profile string: 'small',
+        """
+        n = len(X)
+        if n < 2_000:
+            return "small"
+        elif n < 50_000:
+            return "medium"
         else:
-            # For all other classifiers, instantiate normally
-            classifier_instance = clf_class()
+            return "large"
 
-        # Instantiate the classes to build the pipeline
-        self.pipeline = Pipeline(
-            [
-                ("vectorizer", vec_class()),
-                ("classifier", classifier_instance),
-            ]
-        )
+    def optimize(self, vectorizer_type: str, model_type: str,
+                 X_train: list, y_train: np.ndarray) -> Dict[str, Any]:
+        """
+        Optimize hyperparameters for a given pipeline configuration.
 
-        # Build search space: vectorizer params + classifier params
-        vec_name = vec_class.__name__
-        clf_name = clf_class.__name__
+        Args:
+            vectorizer_type: Type of vectorizer ('tfidf' or 'count')
+            model_type: Type of model ('logistic', 'naive_bayes', 'svm', 'random_forest')
+            X_train: Training texts
+            y_train: Training labels
 
-        # Add vectorizer parameters
-        if vec_name in param_space:
-            for param_name, param_space_obj in param_space[vec_name].items():
-                self.search_space.append(param_space_obj)
+        Returns:
+            Dictionary containing:
+                - best_params: Best hyperparameters found
+                - best_score: Best cross-validation score
+                - variance: Variance of the best configuration
+                - inference_time: Average inference time per sample
+        """
+        # Profile dataset
+        profile = self.dataset_profile(X_train)
 
-        # Add classifier parameters
-        if clf_name in param_space:
-            for param_name, param_space_obj in param_space[clf_name].items():
-                self.search_space.append(param_space_obj)
+        # Define search space based on pipeline configuration
+        space = self._get_search_space(vectorizer_type, model_type, profile)
 
-        # Convert to tuple for skopt
-        self.search_space = tuple(self.search_space)
+        # Track evaluation metrics
+        scores = []
+        inference_times = []
 
-        # Combine the parameter spaces for the chosen algorithms
-        # if clf_class.__name__ not in param_space:
-        #     self.search_space = (
-        #         param_space[vec_class.__name__]["ngram_range"],
-        #         param_space[vec_class.__name__]["max_df"],
-        #         param_space[vec_class.__name__]["min_df"],
-        #     )
-        #     return
-        # self.search_space = (
-        #     param_space[vec_class.__name__]["ngram_range"],
-        #     param_space[vec_class.__name__]["max_df"],
-        #     param_space[vec_class.__name__]["min_df"],
-        #     param_space[clf_class.__name__]["C"],
-        # )
+        @use_named_args(space)
+        def objective(**params):
+            # Objective function for BO
+            try:
+                # Build pipeline
+                pipeline = self._build_pipeline(vectorizer_type, model_type, params, profile)
 
-        # Add gamma only if the classifier is SVC
-        # if clf_class == SVC:
-        #     self.search_space += (param_space[SVC.__name__]["gamma"],)
+                # Measure training time
+                start_time = time.time()
+                pipeline.fit(X_train, y_train)
 
-    def _objective(self, **params):
-        # Convert ngram_range string to tuple if present
-        if "vectorizer__ngram_range" in params:
-            ngram_str = params["vectorizer__ngram_range"]
-            params["vectorizer__ngram_range"] = tuple(map(int, ngram_str.split(",")))
+                # Measure inference time
+                inference_start = time.time()
+                _ = pipeline.predict(X_train[:100])  # Sample for speed
+                inference_time = (time.time() - inference_start) / 100
+                inference_times.append(inference_time)
 
-        # ngram_str = params["vectorizer__ngram_range"]
-        # params["vectorizer__ngram_range"] = tuple(map(int, ngram_str.split(",")))
-
-        self.pipeline.set_params(**params)
-
-        score = np.mean(
-            cross_val_score(
-                self.pipeline,
-                self.X,
-                self.y,
-                cv=2,  # change to 5
-                n_jobs=-1,  # change to 1 later
-                scoring="accuracy",
-            )
-        )
-
-        # skopt minimizes functions, so we return 1.0 - accuracy
-        return 1.0 - score
-
-    def run(self, n_calls=5):  # change to 15
-        if len(self.search_space) == 0:
-            print("   No hyperparameters to tune, evaluating with defaults...")
-            score = np.mean(
-                cross_val_score(
-                    self.pipeline,
-                    self.X,
-                    self.y,
-                    cv=2,
-                    scoring="accuracy",
-                    n_jobs=1,
+                # Cross-validation score
+                cv_scores = cross_val_score(
+                    pipeline, X_train, y_train,
+                    cv=self.cv, scoring='f1_weighted', n_jobs=-1
                 )
-            )
-            return {}, score, 0.0
+                score = cv_scores.mean()
+                scores.append(score)
 
-        print(
-            f"Starting Bayesian Optimization for pipeline: {self.pipeline.steps[0][1].__class__.__name__} -> {self.pipeline.steps[1][1].__class__.__name__}"
-        )
-        print(
-            f"Searching over {len(self.search_space)} hyperparameters for {n_calls} iterations..."
-        )
+                # BO minimizes, so negate the score
+                return -score
 
-        # if not self.search_space:
-        #     # No tunable params, just fit once and get accuracy
-        #     print("   No hyperparameters to tune, evaluating with defaults...")
-        #     self.pipeline.fit(self.X, self.y)
-        #     acc = np.mean(
-        #         cross_val_score(
-        #             self.pipeline, self.X, self.y, cv=2, scoring="accuracy", n_jobs=-1
-        #         )
-        #     )
-        #     print("✅ Optimization finished!")
-        #     return {}, acc, 0.0
+            except Exception as e:
+                print(f"Error in BO iteration: {e}")
+                return 0.0  # Return poor score on failure
 
-        # We need a decorated version of the objective function
-        # that can handle named arguments from the search space.
-        @use_named_args(self.search_space)
-        def wrapped_objective(**params):
-            return self._objective(**params)
-
-        # Adjust n_initial_points if n_calls is small (e.g. in Dev Mode)
-        n_initial_points = min(10, n_calls)
-
+        # Run Bayesian Optimization
         result = gp_minimize(
-            func=wrapped_objective,
-            dimensions=self.search_space,
-            n_calls=n_calls,
-            n_initial_points=n_initial_points,
-            random_state=42,
-            verbose=False,
-            n_jobs=1,
+            objective,
+            space,
+            n_calls=self.n_calls,
+            random_state=self.random_state,
+            n_jobs=1,  # Sequential for stability
+            verbose=False
         )
 
-        print("Optimization finished")
+        # Extract best parameters
+        best_params = {}
+        for param_name, param_value in zip([s.name for s in space], result.x):
+            best_params[param_name] = param_value
 
-        best_params = {dim.name: val for dim, val in zip(result.space, result.x)}
-        best_score = 1.0 - result.fun
-        score_variance = np.var(result.func_vals)
+        best_score = -result.fun  # Negate back to get actual score
 
-        return best_params, best_score, score_variance
+        # Compute variance from cross-validation
+        variance = np.var(scores) if len(scores) > 0 else 0.0
+
+        # Average inference time
+        avg_inference_time = np.mean(inference_times) if len(inference_times) > 0 else 0.001
+
+        return {
+            "best_params": best_params,
+            "best_score": best_score,
+            "variance": variance,
+            "inference_time": avg_inference_time,
+            "profile": profile,
+        }
+
+    def _get_search_space(self, vectorizer_type: str, model_type: str, profile: str) -> list:
+        """
+        Define the hyperparameter search space.
+
+        Args:
+            vectorizer_type: Type of vectorizer
+            model_type: Type of model
+            profile: Dataset profile ('small', 'medium', 'large')
+
+        Returns:
+            List of skopt Space objects
+        """
+        space = []
+
+        # Dataset-aware limits
+        if profile == "small":
+            max_features_upper = 5000
+            max_ngram = 2
+        elif profile == "medium":
+            max_features_upper = 10000
+            max_ngram = 3
+        else:  # large
+            max_features_upper = 15000
+            max_ngram = 3
+
+        # Vectorizer hyperparameters
+        if vectorizer_type in ["tfidf", "count"]:
+            space.extend([
+                Integer(1, max_ngram, name="ngram_range_max"),
+                Integer(1, 10, name="min_df"),
+                Real(0.5, 1.0, name="max_df"),
+                Integer(1000, max_features_upper, name="max_features")
+            ])
+
+        # Model hyperparameters
+        if model_type == "logistic":
+            space.extend([
+                Real(0.01, 10.0, prior="log-uniform", name="C"),
+            ])
+        elif model_type == "naive_bayes":
+            space.extend([
+                Real(0.1, 10.0, name="alpha")
+            ])
+        elif model_type == "svm":
+            space.extend([
+                Real(0.01, 10.0, prior="log-uniform", name="C"),
+                Categorical(["l1", "l2"], name="penalty")
+            ])
+        elif model_type == "random_forest":
+            # Limit estimators for small datasets
+            max_estimators = 100 if profile == "small" else 200
+            space.extend([
+                Integer(10, max_estimators, name="n_estimators"),
+                Integer(2, 20, name="max_depth"),
+                Integer(2, 10, name="min_samples_split")
+            ])
+
+        return space
+
+    def _build_pipeline(self, vectorizer_type: str, model_type: str,
+                        params: Dict[str, Any], profile: str) -> Pipeline:
+        """
+        Build a sklearn pipeline from configuration and parameters.
+
+        Args:
+            vectorizer_type: Type of vectorizer
+            model_type: Type of model
+            params: Hyperparameters
+            profile: Dataset profile
+
+        Returns:
+            Configured sklearn Pipeline
+        """
+        # Build vectorizer
+        ngram_max = params.get("ngram_range_max", 1)
+
+        if vectorizer_type == "tfidf":
+            vectorizer = TfidfVectorizer(
+                ngram_range=(1, ngram_max),
+                min_df=params.get("min_df", 1),
+                max_df=params.get("max_df", 1.0),
+                max_features=params.get("max_features", 5000)
+            )
+        elif vectorizer_type == "count":
+            vectorizer = CountVectorizer(
+                ngram_range=(1, ngram_max),
+                min_df=params.get("min_df", 1),
+                max_df=params.get("max_df", 1.0),
+                max_features=params.get("max_features", 5000)
+            )
+        else:
+            raise ValueError(f"Unknown vectorizer type: {vectorizer_type}")
+
+        # Build model
+        if model_type == "logistic":
+            model = LogisticRegression(
+                C=params.get("C", 1.0),
+                solver="saga",
+                penalty="l2",
+                max_iter=3000,
+                n_jobs=-1,
+                random_state=self.random_state
+            )
+        elif model_type == "naive_bayes":
+            model = MultinomialNB(
+                alpha=params.get("alpha", 1.0)
+            )
+        elif model_type == "svm":
+            model = LinearSVC(
+                C=params.get("C", 1.0),
+                penalty=params.get("penalty", "l2"),
+                dual="auto",
+                max_iter=1000,
+                random_state=self.random_state
+            )
+        elif model_type == "random_forest":
+            model = RandomForestClassifier(
+                n_estimators=params.get("n_estimators", 100),
+                max_depth=params.get("max_depth", None),
+                min_samples_split=params.get("min_samples_split", 2),
+                random_state=self.random_state,
+                n_jobs=-1
+            )
+        else:
+            raise ValueError(f"Unknown model type: {model_type}")
+
+        # Create pipeline
+        pipeline = Pipeline([
+            ("vectorizer", vectorizer),
+            ("classifier", model)
+        ])
+
+        return pipeline

@@ -1,71 +1,153 @@
+import os
+import pickle
 from pathlib import Path
+from typing import Tuple, List
+import numpy as np
 from datasets import load_dataset
-from sklearn.model_selection import train_test_split
-
-DATA_ROOT = Path("data")
-DATA_ROOT.mkdir(exist_ok=True)
+from sklearn.datasets import fetch_20newsgroups
 
 
-def load_imdb(n_samples=None):
-    cache_dir = DATA_ROOT / "imdb"
-    dataset = load_dataset("imdb", cache_dir=str(cache_dir))
+class DataLoader:
+    """
+    Manages dataset loading and caching for the AutoML system.
 
-    X = dataset["train"]["text"]
-    y = dataset["train"]["label"]
+    This class ensures datasets are downloaded once and cached locally
+    to avoid redundant downloads and speed up subsequent runs.
+    """
 
-    if n_samples:
-        # If n_samples is requested, we can just take a smaller slice.
-        # But for better distribution, we use train_test_split (stratified) to get a small subset.
-        X, _, y, _ = train_test_split(
-            X, y, train_size=n_samples, stratify=y, random_state=42
-        )
-        # We don't need to split further because we return X, y directly as "train"
-        # However, the original code returned a split. Let's respect the return signature.
-        # The original code did: return train_test_split(..., train_size=0.5, ...)
-        
-        # If we want a SMALL training set for Dev Mode:
-        return X, None, y, None # We just return the subsampled data as "train" part.
-        
-        # Wait, the original code returns train_test_split(X, y, train_size=0.5, ...)
-        # which returns: X_train, X_test, y_train, y_test.
-        # But load_selected_dataset only unpacks 4 values: X_train, _, y_train, _
-        # So we need to return 4 values.
-        
-    return train_test_split(X, y, train_size=0.5, stratify=y, random_state=42)
+    def __init__(self, cache_dir: str = "./data"):
+        """
+        Initialize the DataLoader.
 
+        Args:
+            cache_dir: Directory to cache downloaded datasets
+        """
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(exist_ok=True, parents=True)
 
-def load_ag_news(n_samples=None):
-    cache_dir = DATA_ROOT / "ag_news"
-    dataset = load_dataset("ag_news", cache_dir=str(cache_dir))
+    def load_dataset(self, dataset_name: str, subset: str = "train",
+                     max_samples: int = None) -> Tuple[List[str], np.ndarray]:
+        """
+        Load a dataset, using cache if available.
 
-    texts = [
-        t + " " + d
-        for t, d in zip(dataset["train"]["title"], dataset["train"]["description"])
-    ]
-    labels = dataset["train"]["label"]
+        Args:
+            dataset_name: Name of the dataset ('20newsgroups', 'imdb', 'ag_news', 'banking77')
+            subset: Which subset to load ('train', 'test')
+            max_samples: Maximum number of samples to return (for faster prototyping)
 
-    if n_samples:
-        X, _, y, _ = train_test_split(
-            texts, labels, train_size=n_samples, stratify=labels, random_state=42
-        )
-        return X, None, y, None
+        Returns:
+            Tuple of (texts, labels) where texts is a list of strings and labels is a numpy array
+        """
+        cache_file = self.cache_dir / f"{dataset_name}_{subset}.pkl"
 
-    return train_test_split(
-        texts, labels, train_size=0.5, stratify=labels, random_state=42
-    )
+        # Check cache first
+        if cache_file.exists():
+            print(f"Loading {dataset_name} from cache...")
+            with open(cache_file, "rb") as f:
+                data = pickle.load(f)
+                texts, labels = data["texts"], data["labels"]
+        else:
+            print(f"Downloading {dataset_name}...")
+            texts, labels = self._download_dataset(dataset_name, subset)
 
+            # Cache the dataset
+            with open(cache_file, "wb") as f:
+                pickle.dump({"texts": texts, "labels": labels}, f)
 
-def load_banking77(n_samples=None):
-    cache_dir = DATA_ROOT / "banking77"
-    dataset = load_dataset("banking77", cache_dir=str(cache_dir))
+        # Apply max_samples if specified
+        if max_samples is not None and len(texts) > max_samples:
+            indices = np.random.choice(len(texts), max_samples, replace=False)
+            texts = [texts[i] for i in indices]
+            labels = labels[indices]
 
-    X = dataset["train"]["text"]
-    y = dataset["train"]["label"]
+        return texts, labels
 
-    if n_samples:
-        X, _, y, _ = train_test_split(
-            X, y, train_size=n_samples, stratify=y, random_state=42
-        )
-        return X, None, y, None
+    def _download_dataset(self, dataset_name: str, subset: str) -> Tuple[List[str], np.ndarray]:
+        """
+        Download dataset from Hugging Face or sklearn.
 
-    return train_test_split(X, y, train_size=0.7, stratify=y, random_state=42)
+        Args:
+            dataset_name: Name of the dataset
+            subset: Which subset to load
+
+        Returns:
+            Tuple of (texts, labels)
+        """
+        if dataset_name == "20newsgroups":
+            return self._load_20newsgroups(subset)
+        elif dataset_name == "imdb":
+            return self._load_imdb(subset)
+        elif dataset_name == "ag_news":
+            return self._load_ag_news(subset)
+        elif dataset_name == "banking77":
+            return self._load_banking77(subset)
+        else:
+            raise ValueError(f"Unknown dataset: {dataset_name}")
+
+    def _load_20newsgroups(self, subset: str) -> Tuple[List[str], np.ndarray]:
+        """Load 20 Newsgroups dataset."""
+        data = fetch_20newsgroups(subset=subset, remove=('headers', 'footers', 'quotes'))
+        return data.data, np.array(data.target)
+
+    def _load_imdb(self, subset: str) -> Tuple[List[str], np.ndarray]:
+        """Load IMDb sentiment dataset."""
+        split = "train" if subset == "train" else "test"
+        dataset = load_dataset("imdb", split=split)
+        texts = dataset["text"]
+        labels = np.array(dataset["label"])
+        return texts, labels
+
+    def _load_ag_news(self, subset: str) -> Tuple[List[str], np.ndarray]:
+        """Load AG News dataset."""
+        split = "train" if subset == "train" else "test"
+        dataset = load_dataset("ag_news", split=split)
+        texts = dataset["text"]
+        labels = np.array(dataset["label"])
+        return texts, labels
+
+    def _load_banking77(self, subset: str) -> Tuple[List[str], np.ndarray]:
+        """Load Banking77 dataset."""
+        split = "train" if subset == "train" else "test"
+        dataset = load_dataset("banking77", split=split)
+        texts = dataset["text"]
+        labels = np.array(dataset["label"])
+        return texts, labels
+
+    def get_dataset_info(self, dataset_name: str) -> dict:
+        """
+        Get information about a dataset.
+
+        Args:
+            dataset_name: Name of the dataset
+
+        Returns:
+            Dictionary with dataset metadata
+        """
+        info = {
+            "20newsgroups": {
+                "description": "Multi-class document classification (20 categories)",
+                "num_classes": 20,
+                "task": "multi-class classification",
+                "domain": "news articles"
+            },
+            "imdb": {
+                "description": "Binary sentiment analysis (positive/negative)",
+                "num_classes": 2,
+                "task": "binary classification",
+                "domain": "movie reviews"
+            },
+            "ag_news": {
+                "description": "News categorization (4 categories)",
+                "num_classes": 4,
+                "task": "multi-class classification",
+                "domain": "news headlines"
+            },
+            "banking77": {
+                "description": "Intent classification (77 intents)",
+                "num_classes": 77,
+                "task": "multi-class classification",
+                "domain": "banking queries"
+            }
+        }
+
+        return info.get(dataset_name, {"description": "Unknown dataset"})
