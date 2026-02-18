@@ -1,6 +1,8 @@
 import streamlit as st
+import numpy as np
 
 from utils import clean_params
+from utils.formatting import format_time
 
 
 def render_header():
@@ -61,19 +63,101 @@ def render_header():
         - **Trade-offs**: Improving one objective often degrades another
         """)
 
-
-def render_sidebar():
+def render_config():
     """
-    Render sidebar controls.
+    Render optimized configuration controls using a column-based layout.
+    """
+    st.header("⚙️ Configuration")
+
+    # --- Dataset Section ---
+    with st.container():
+        st.subheader("Dataset Selection")
+        
+        # Use columns for dataset and sample size to shorten the slider length
+        col_ds1, col_ds2 = st.columns([1, 1], gap="medium")
+        
+        with col_ds1:
+            dataset_name = st.selectbox(
+                "Choose a dataset:",
+                ["20newsgroups", "imdb", "ag_news", "banking77"],
+                index=0,
+                help="Select the text classification dataset to use"
+            )
+            
+            dataset_info = {
+                "20newsgroups": "Multi-class (20 categories) news article classification",
+                "imdb": "Binary sentiment analysis (positive/negative reviews)",
+                "ag_news": "News categorization (4 categories)",
+                "banking77": "Intent classification (77 banking intents)"
+            }
+            st.caption(f"ℹ️ {dataset_info[dataset_name]}")
+
+        with col_ds2:
+            max_samples = st.slider(
+                "Max samples (Prototyping):",
+                min_value=500,
+                max_value=10000,
+                value=2000,
+                step=500,
+                help="Limit dataset size for faster experimentation"
+            )
+
+    st.divider()
+
+    # --- Search Configuration Section ---
+    st.subheader("Search Strategy")
+    
+    # Use a 3-column layout to make sliders significantly shorter and more manageable
+    col1, col2, col3 = st.columns(3, gap="small")
+
+    with col1:
+        population_size = st.select_slider(
+            "Population Size:",
+            options=list(range(10, 55, 5)),
+            value=20,
+            help="Number of individuals in each generation"
+        )
+
+    with col2:
+        n_generations = st.select_slider(
+            "Generations:",
+            options=list(range(5, 35, 5)),
+            value=10,
+            help="Number of evolutionary generations"
+        )
+
+    with col3:
+        bo_calls = st.select_slider(
+            "BO Iterations:",
+            options=list(range(10, 35, 5)),
+            value=15,
+            help="Bayesian optimization iterations for hyperparameter tuning"
+        )
+
+    # --- Summary Logic ---
+    total_evals = population_size + (population_size * (n_generations - 1))
+    st.info(f"🧬 **Search Budget:** Approximately **{total_evals}** unique pipelines will be explored.")
+
+    return {
+        "dataset_name": dataset_name,
+        "max_samples": max_samples,
+        "population_size": population_size,
+        "n_generations": n_generations,
+        "bo_calls": bo_calls,
+    }
+
+# def render_config():
+    """
+    Render configuration controls.
 
     Returns:
         Dictionary of user selections
     """
-    st.sidebar.header("⚙️ Configuration")
+    st.header("⚙️ Configuration")
 
     # Dataset selection
-    st.sidebar.subheader("Dataset")
-    dataset_name = st.sidebar.selectbox(
+    st.subheader("Dataset")
+    dataset_name = st.selectbox(
         "Choose a dataset:",
         ["20newsgroups", "imdb", "ag_news", "banking77"],
         index=0,
@@ -87,10 +171,10 @@ def render_sidebar():
         "banking77": "Intent classification (77 banking intents)"
     }
 
-    st.sidebar.info(dataset_info[dataset_name])
+    st.info(dataset_info[dataset_name])
 
     # Sample size
-    max_samples = st.sidebar.slider(
+    max_samples = st.slider(
         "Max samples (for faster prototyping):",
         min_value=500,
         max_value=10000,
@@ -100,9 +184,9 @@ def render_sidebar():
     )
 
     # Search configuration
-    st.sidebar.subheader("Search Configuration")
+    st.subheader("Search Configuration")
 
-    population_size = st.sidebar.slider(
+    population_size = st.slider(
         "Population Size:",
         min_value=10,
         max_value=50,
@@ -111,7 +195,7 @@ def render_sidebar():
         help="Number of individuals in each generation"
     )
 
-    n_generations = st.sidebar.slider(
+    n_generations = st.slider(
         "Number of Generations:",
         min_value=5,
         max_value=30,
@@ -120,7 +204,7 @@ def render_sidebar():
         help="Number of evolutionary generations"
     )
 
-    bo_calls = st.sidebar.slider(
+    bo_calls = st.slider(
         "BO Iterations per Pipeline:",
         min_value=10,
         max_value=30,
@@ -211,6 +295,33 @@ def render_results_summary(results: dict, metrics: dict):
         st.write(f"Max: {metrics['interpretability']['max']:.4f}")
         st.write(f"Mean: {metrics['interpretability']['mean']:.4f}")
         st.write(f"Std: {metrics['interpretability']['std']:.4f}")
+        
+    # Time statistics
+    if "time_stats" in results["stats"]:
+        st.markdown("### ⏱️ Time Statistics")
+        time_stats = results["stats"]["time_stats"]
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Runtime", format_time(time_stats['total_runtime']))
+            
+        with col2:
+            st.metric("Optimization (BO) Time", format_time(time_stats['total_optimization_time']))
+            
+        with col3:
+            total_ga_time = sum(time_stats['generation_times']) if time_stats['generation_times'] else 0
+            avg_gen_time = np.mean(time_stats['generation_times']) if time_stats['generation_times'] else 0
+            st.metric("Total GA Time", format_time(total_ga_time))
+            st.caption(f"Avg: {avg_gen_time:.2f}s / gen")
+            
+        with col4:
+            st.metric("Generations Run", f"{time_stats['total_generations_run']}")
+            
+        with st.expander("View Generation Details"):
+            st.write("Time per generation:")
+            for i, duration in enumerate(time_stats['generation_times']):
+                st.write(f"Generation {i+1}: {format_time(duration)}")
 
 
 # def render_knee_point_info(knee_point: dict):

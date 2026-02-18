@@ -2,7 +2,7 @@
 
 from .layout import (
     render_header,
-    render_sidebar,
+    render_config,
     render_footer,
     render_results_summary,
     # render_knee_point_info,
@@ -18,7 +18,7 @@ from .visuals import (
 
 __all__ = [
     "render_header",
-    "render_sidebar",
+    "render_config",
     "render_footer",
     "render_results_summary",
     # "render_knee_point_info",

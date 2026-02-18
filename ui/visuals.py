@@ -10,7 +10,8 @@ def plot_pareto_front_2d(solutions: List[Dict[str, Any]],
                          pareto_front: List[Dict[str, Any]],
                          knee_point: Dict[str, Any] = None,
                          x_metric: str = "f1_score",
-                         y_metric: str = "latency"):
+                         y_metric: str = "latency",
+                         key: str = None):
     """
     Create 2D scatter plot of solutions with Pareto front highlighted.
 
@@ -101,12 +102,13 @@ def plot_pareto_front_2d(solutions: List[Dict[str, Any]],
         showlegend=True
     )
 
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", key=key)
 
 
 def plot_pareto_front_3d(solutions: List[Dict[str, Any]],
                          pareto_front: List[Dict[str, Any]],
-                         knee_point: Dict[str, Any] = None):
+                         knee_point: Dict[str, Any] = None,
+                         key: str = None):
     """
     Create 3D scatter plot showing all three objectives.
 
@@ -198,10 +200,10 @@ def plot_pareto_front_3d(solutions: List[Dict[str, Any]],
         showlegend=True
     )
 
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", key=key)
 
 
-def plot_search_history(search_history: List[Dict[str, Any]]):
+def plot_search_history(search_history: List[Dict[str, Any]], key: str = None):
     """
     Plot search history showing objective evolution over generations.
 
@@ -249,7 +251,7 @@ def plot_search_history(search_history: List[Dict[str, Any]]):
         showlegend=True
     )
 
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", key=f"{key}_f1" if key else None)
 
     # Latency and Interpretability
     col1, col2 = st.columns(2)
@@ -269,7 +271,7 @@ def plot_search_history(search_history: List[Dict[str, Any]]):
             yaxis_title="Latency (s)",
             height=300
         )
-        st.plotly_chart(fig_latency, width="stretch")
+        st.plotly_chart(fig_latency, width="stretch", key=f"{key}_latency" if key else None)
 
     with col2:
         fig_interp = go.Figure()
@@ -286,7 +288,7 @@ def plot_search_history(search_history: List[Dict[str, Any]]):
             yaxis_title="Interpretability",
             height=300
         )
-        st.plotly_chart(fig_interp, width="stretch")
+        st.plotly_chart(fig_interp, width="stretch", key=f"{key}_interp" if key else None)
 
 
 def show_solutions_table(solutions: List[Dict[str, Any]],
@@ -315,17 +317,13 @@ def show_solutions_table(solutions: List[Dict[str, Any]],
         ])
 
     pareto_keys = {solution_key(s) for s in pareto_front}
-    df['is_pareto'] = df.apply(
-        lambda row: solution_key(row.to_dict()) in pareto_keys,
-        axis=1
-    )
+    
+    # Calculate flags using original solution objects to avoid DataFrame type conversion issues (e.g. NaN for missing keys)
+    df['is_pareto'] = [solution_key(s) in pareto_keys for s in solutions]
 
     if knee_point:
         knee_key = solution_key(knee_point)
-        df['is_knee'] = df.apply(
-            lambda row: solution_key(row.to_dict()) == knee_key,
-            axis=1
-        )
+        df['is_knee'] = [solution_key(s) == knee_key for s in solutions]
     else:
         df['is_knee'] = False
 
