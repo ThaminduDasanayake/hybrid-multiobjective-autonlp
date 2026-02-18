@@ -6,9 +6,15 @@ dist/
 wheels/
 *.egg-info
 
+.DS_Store
 .idea/
+.pytest_cache/
 
 # Virtual environments
 .venv
 
 data
+tests/
+jobs/
+logs/
+*.log
