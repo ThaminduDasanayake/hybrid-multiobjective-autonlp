@@ -146,12 +146,14 @@ class ParetoAnalyzer:
         return pareto_front[knee_idx]
 
     @staticmethod
-    def compute_metrics(solutions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def compute_metrics(solutions: List[Dict[str, Any]],
+                        pareto_front: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Compute summary metrics for a set of solutions.
+        Compute comprehensive metrics for a set of solutions.
 
         Args:
             solutions: List of solution dictionaries
+            pareto_front: Optional pre-computed Pareto front (avoids O(n²) recomputation)
 
         Returns:
             Dictionary of metrics
@@ -164,8 +166,9 @@ class ParetoAnalyzer:
         latencies = [sol["latency"] for sol in solutions]
         interpretabilities = [sol["interpretability"] for sol in solutions]
 
-        # Get Pareto front
-        pareto_front = ParetoAnalyzer.get_pareto_front(solutions)
+        # Use pre-computed Pareto front if provided, otherwise compute it
+        if pareto_front is None:
+            pareto_front = ParetoAnalyzer.get_pareto_front(solutions)
 
         # Compute knee point
         knee_point = ParetoAnalyzer.compute_knee_point(pareto_front)
@@ -194,10 +197,6 @@ class ParetoAnalyzer:
             },
             "knee_point": knee_point
         }
-
-        metrics.setdefault("pareto_front_size", 0)
-        metrics.setdefault("total_solutions", 0)
-        metrics.setdefault("dominated_solutions", 0)
 
         return metrics
 

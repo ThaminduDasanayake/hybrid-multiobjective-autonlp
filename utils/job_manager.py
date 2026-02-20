@@ -105,15 +105,24 @@ class JobManager:
             return None
             
     def update_status(self, job_id: str, status: Dict[str, Any]):
-        """Update status file for a job."""
+        """Update status file for a job using atomic write to prevent race conditions."""
+        import tempfile
         status_path = self._get_job_dir(job_id) / "status.json"
         status["last_updated"] = time.time()
         
         try:
-            with open(status_path, "w") as f:
+            # Write to temp file first, then atomically replace
+            fd, tmp_path = tempfile.mkstemp(
+                dir=status_path.parent, suffix=".tmp"
+            )
+            with os.fdopen(fd, "w") as f:
                 json.dump(status, f, indent=2)
+            os.replace(tmp_path, status_path)
         except Exception as e:
             logger.error(f"Error updating status for job {job_id}: {e}")
+            # Clean up temp file on failure
+            if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
     def get_result(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Load result from completed job."""

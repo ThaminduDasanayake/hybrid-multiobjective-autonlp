@@ -70,7 +70,7 @@ class BayesianOptimizer:
         Optimize hyperparameters for a given pipeline configuration.
 
         Args:
-            scaler_type: Type of scaler ('standard', 'minmax', None)
+            scaler_type: Type of scaler ('standard', 'maxabs', 'robust', None)
             dim_reduction_type: Type of dim reduction ('pca', 'select_k_best', None)
             vectorizer_type: Type of vectorizer ('tfidf' or 'count')
             model_type: Type of model ('logistic', 'naive_bayes', 'svm', 'random_forest')
@@ -105,17 +105,7 @@ class BayesianOptimizer:
                 # Build pipeline
                 pipeline = self._build_pipeline(scaler_type, dim_reduction_type, vectorizer_type, model_type, ngram_range, max_features, params, profile)
 
-                # Measure training time
-                start_time = time.time()
-                pipeline.fit(X_train, y_train)
-
-                # Measure inference time
-                inference_start = time.time()
-                _ = pipeline.predict(X_train[:100])  # Sample for speed
-                inference_time = (time.time() - inference_start) / 100
-                inference_times.append(inference_time)
-
-                # Cross-validation score
+                # Cross-validation score first (fail-fast: avoids wasted fit if CV fails)
                 cv_scores = cross_val_score(
                     pipeline, X_train, y_train,
                     cv=self.cv, scoring='f1_weighted', n_jobs=-1,
@@ -123,6 +113,13 @@ class BayesianOptimizer:
                 )
                 score = cv_scores.mean()
                 scores.append(score)
+
+                # Measure inference time (requires a full fit on all training data)
+                pipeline.fit(X_train, y_train)
+                inference_start = time.time()
+                _ = pipeline.predict(X_train[:100])  # Sample for speed
+                inference_time = (time.time() - inference_start) / 100
+                inference_times.append(inference_time)
 
                 # BO minimizes, so negate the score
                 # Handle NaN if it slips through
@@ -240,7 +237,7 @@ class BayesianOptimizer:
         if model_type == "logistic":
             space.extend([
                 Real(0.01, 10.0, prior="log-uniform", name="C"),
-                Integer(500, 2000, name="max_iter")
+                Integer(1000, 3000, name="max_iter")
             ])
         elif model_type == "naive_bayes":
             space.extend([
@@ -250,7 +247,7 @@ class BayesianOptimizer:
             space.extend([
                 Real(0.01, 10.0, prior="log-uniform", name="C"),
                 Categorical(["l1", "l2"], name="penalty"),
-                Integer(500, 2000, name="max_iter")
+                Integer(1000, 5000, name="max_iter")
             ])
         elif model_type == "random_forest":
             # Limit estimators for small datasets
@@ -329,10 +326,9 @@ class BayesianOptimizer:
         # 2. Scaler
         if scaler_type == "standard":
             steps.append(("scaler", StandardScaler(with_mean=False)))
-        elif scaler_type == "minmax":
-            # Using MaxAbsScaler as a proxy for sparse "minmax" scaling often
-            # or we can use MinMaxScaler(copy=False) if density allows?
-            # To be safe on sparse data:
+        elif scaler_type == "maxabs":
+            # MaxAbsScaler is the correct choice for sparse text data (TF-IDF/Count).
+            # It scales by maximum absolute value without shifting center, preserving sparsity.
             steps.append(("scaler", MaxAbsScaler()))
         elif scaler_type == "robust":
             steps.append(("scaler", RobustScaler(with_centering=False)))
@@ -348,19 +344,14 @@ class BayesianOptimizer:
 
         # 4. Model
         if model_type == "logistic":
-            # Solver selection: liblinear is better for sparse data (non-standard scaled)
-            solver = "saga"
-            n_jobs = -1
-            if scaler_type != "standard":
-                solver = "liblinear"
-                n_jobs = 1 # liblinear does not use n_jobs
-
+            # Use saga universally — supports multiclass natively, sparse data, and L2 penalty.
+            # liblinear is deprecated for multiclass in sklearn >=1.8.
             model = LogisticRegression(
                 C=params.get("C", 1.0),
-                solver=solver,
+                solver="saga",
                 penalty="l2",
-                max_iter=params.get("max_iter", 2000),
-                n_jobs=n_jobs,
+                max_iter=params.get("max_iter", 3000),
+                n_jobs=-1,
                 random_state=self.random_state
             )
         elif model_type == "naive_bayes":
@@ -377,7 +368,7 @@ class BayesianOptimizer:
                 C=params.get("C", 1.0),
                 penalty=params.get("penalty", "l2"),
                 dual=dual,
-                max_iter=params.get("max_iter", 2000),
+                max_iter=params.get("max_iter", 5000),
                 random_state=self.random_state
             )
         elif model_type == "random_forest":
@@ -409,8 +400,7 @@ class BayesianOptimizer:
                 penalty=params.get("penalty", "l2"),
                 alpha=params.get("alpha", 1e-4),
                 max_iter=params.get("max_iter", 2000),
-                random_state=self.random_state,
-                n_jobs=-1
+                random_state=self.random_state
             )
         else:
             raise ValueError(f"Unknown model type: {model_type}")

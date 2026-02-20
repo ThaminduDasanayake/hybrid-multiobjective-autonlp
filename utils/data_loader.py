@@ -56,7 +56,8 @@ class DataLoader:
 
         # Apply max_samples if specified
         if max_samples is not None and len(texts) > max_samples:
-            indices = np.random.choice(len(texts), max_samples, replace=False)
+            rng = np.random.RandomState(42)
+            indices = rng.choice(len(texts), max_samples, replace=False)
             texts = [texts[i] for i in indices]
             labels = labels[indices]
 

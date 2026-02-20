@@ -146,80 +146,7 @@ def render_config():
         "bo_calls": bo_calls,
     }
 
-# def render_config():
-    """
-    Render configuration controls.
 
-    Returns:
-        Dictionary of user selections
-    """
-    st.header("⚙️ Configuration")
-
-    # Dataset selection
-    st.subheader("Dataset")
-    dataset_name = st.selectbox(
-        "Choose a dataset:",
-        ["20newsgroups", "imdb", "ag_news", "banking77"],
-        index=0,
-        help="Select the text classification dataset to use"
-    )
-
-    dataset_info = {
-        "20newsgroups": "Multi-class (20 categories) news article classification",
-        "imdb": "Binary sentiment analysis (positive/negative reviews)",
-        "ag_news": "News categorization (4 categories)",
-        "banking77": "Intent classification (77 banking intents)"
-    }
-
-    st.info(dataset_info[dataset_name])
-
-    # Sample size
-    max_samples = st.slider(
-        "Max samples (for faster prototyping):",
-        min_value=500,
-        max_value=10000,
-        value=2000,
-        step=500,
-        help="Limit dataset size for faster experimentation"
-    )
-
-    # Search configuration
-    st.subheader("Search Configuration")
-
-    population_size = st.slider(
-        "Population Size:",
-        min_value=10,
-        max_value=50,
-        value=20,
-        step=5,
-        help="Number of individuals in each generation"
-    )
-
-    n_generations = st.slider(
-        "Number of Generations:",
-        min_value=5,
-        max_value=30,
-        value=10,
-        step=5,
-        help="Number of evolutionary generations"
-    )
-
-    bo_calls = st.slider(
-        "BO Iterations per Pipeline:",
-        min_value=10,
-        max_value=30,
-        value=15,
-        step=5,
-        help="Bayesian optimization iterations for hyperparameter tuning"
-    )
-
-    return {
-        "dataset_name": dataset_name,
-        "max_samples": max_samples,
-        "population_size": population_size,
-        "n_generations": n_generations,
-        "bo_calls": bo_calls,
-    }
 
 
 def render_footer():
@@ -324,39 +251,7 @@ def render_results_summary(results: dict, metrics: dict):
                 st.write(f"Generation {i+1}: {format_time(duration)}")
 
 
-# def render_knee_point_info(knee_point: dict):
-#     """
-#     Render information about the knee point solution.
-#
-#     Args:
-#         knee_point: Knee point solution dictionary
-#     """
-#     if knee_point is None:
-#         st.warning("No knee point found (no solutions in Pareto front)")
-#         return
-#
-#     st.subheader("🎯 Recommended: Knee Point Solution")
-#
-#     st.markdown("""
-#     The **knee point** represents the most balanced solution across all three objectives.
-#     It offers a good compromise when you don't want to prioritize any single objective.
-#     """)
 
-    # col1, col2 = st.columns(2)
-    #
-    # with col1:
-    #     st.markdown("**Pipeline Configuration**")
-    #     st.write(f"Vectorizer: `{knee_point['vectorizer']}`")
-    #     st.write(f"Model: `{knee_point['model']}`")
-    #
-    # with col2:
-    #     st.markdown("**Performance Metrics**")
-    #     st.write(f"F1 Score: **{knee_point['f1_score']:.4f}**")
-    #     st.write(f"Latency: **{knee_point['latency'] * 1000:.2f} ms**")
-    #     st.write(f"Interpretability: **{knee_point['interpretability']:.4f}**")
-    #
-    # with st.expander("View Hyperparameters"):
-    #     st.json(knee_point['params'])
 
 
 def render_decision_support_panel(results: dict, metrics: dict):
@@ -404,7 +299,7 @@ def render_decision_support_panel(results: dict, metrics: dict):
             st.json(clean_params(best_latency_sol['params']))
 
     with col3:
-        st.markdown("### 🔍 High Interpretability Solution")
+        st.markdown("🔍 High Interpretability Solution")
         st.markdown("**Choose this if**: Explainability is required")
         st.markdown(f"**Pipeline**: {best_interp_sol['vectorizer']} + {best_interp_sol['model']}")
         st.metric("F1 Score", f"{best_interp_sol['f1_score']:.4f}")
@@ -438,13 +333,3 @@ def render_decision_support_panel(results: dict, metrics: dict):
 
         with st.expander("View Hyperparameters"):
             st.json(clean_params(knee_point['params']))
-
-        # with col1:
-        #     st.markdown(f"**Pipeline**: {knee['vectorizer']} + {knee['model']}")
-        #     st.write(f"F1 Score: **{knee['f1_score']:.4f}**")
-        #     st.write(f"Latency: **{knee['latency'] * 1000:.2f} ms**")
-        #     st.write(f"Interpretability: **{knee['interpretability']:.4f}**")
-        #
-        # with col2:
-        #     with st.expander("View Hyperparameters"):
-        #         st.json(knee['params'])

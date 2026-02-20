@@ -1,31 +1,38 @@
+"""Utilities for converting objects to Python-native or JSON-safe formats."""
+
 import numpy as np
 
-def to_python_type(obj):
-    if isinstance(obj, dict):
-        return {k: to_python_type(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [to_python_type(v) for v in obj]
-    if hasattr(obj, "item"):
-        return obj.item()
-    return obj
+
+def to_python_type(val):
+    """Convert a value to a native Python type (handles numpy types, dicts, lists)."""
+    if isinstance(val, (np.integer,)):
+        return int(val)
+    elif isinstance(val, (np.floating,)):
+        return float(val)
+    elif isinstance(val, np.ndarray):
+        return val.tolist()
+    elif isinstance(val, np.bool_):
+        return bool(val)
+    elif isinstance(val, np.str_):
+        return str(val)
+    elif isinstance(val, dict):
+        return {k: to_python_type(v) for k, v in val.items()}
+    elif isinstance(val, (list, tuple)):
+        return type(val)(to_python_type(v) for v in val)
+    return val
 
 
-def to_json_safe(obj):
-    if isinstance(obj, dict):
-        return {k: to_json_safe(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [to_json_safe(v) for v in obj]
-    if isinstance(obj, np.generic):
-        return obj.item()
-    return obj
-
-def clean(v):
-    if isinstance(v, np.integer):
-        return int(v)
-    if isinstance(v, np.floating):
-        return float(v)
-    return v
+# Aliases for backward compatibility
+to_json_safe = to_python_type
+clean = to_python_type
 
 
 def clean_params(params: dict) -> dict:
-    return {k: clean(v) for k, v in params.items()}
+    """Clean parameter dict — convert numpy types and remove internal keys."""
+    if not isinstance(params, dict):
+        return params
+    return {
+        k: to_python_type(v)
+        for k, v in params.items()
+        if not k.startswith("_")
+    }

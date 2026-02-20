@@ -186,27 +186,49 @@ class RandomSearchBaseline:
     def _compute_interpretability(self, vectorizer_type: str,
                                   model_type: str,
                                   params: Dict[str, Any]) -> float:
-        """Compute interpretability score (same as HybridAutoML)."""
+        """Compute interpretability score (matches HybridAutoML evaluator formula)."""
         score = 0.0
 
+        # Model complexity (30%) — matches evaluator.py
         model_scores = {
             "logistic": 1.0,
             "naive_bayes": 0.9,
             "svm": 0.7,
-            "random_forest": 0.4
+            "random_forest": 0.4,
+            "lightgbm": 0.3,
+            "sgd": 0.9
         }
-        score += 0.4 * model_scores.get(model_type, 0.5)
+        score += 0.3 * model_scores.get(model_type, 0.5)
 
+        # Feature transparency (20%) — matches evaluator.py
         vectorizer_scores = {"count": 1.0, "tfidf": 0.8}
-        score += 0.3 * vectorizer_scores.get(vectorizer_type, 0.5)
+        score += 0.2 * vectorizer_scores.get(vectorizer_type, 0.5)
 
+        # Preprocessing complexity (20%) — baseline has no scaler/dim_reduction
+        # No scaler = 1.0, no dim_reduction = 1.0, average = 1.0
+        score += 0.2 * 1.0
+
+        # Hyperparameter simplicity (30%) — matches evaluator.py structure
         simplicity = 0.0
+
+        # N-gram penalty (40% of simplicity)
         ngram_max = params.get("ngram_range_max", 1)
-        simplicity += 0.4 * (1.0 / ngram_max)
+        ngram_scores = {1: 1.0, 2: 0.7, 3: 0.4}
+        simplicity += 0.4 * ngram_scores.get(ngram_max, 0.4)
 
+        # Max features penalty (30% of simplicity)
         max_features = params.get("max_features", 5000)
-        simplicity += 0.3 * (1.0 - min(max_features / 10000, 1.0))
+        if max_features <= 5000:
+            feat_score = 1.0
+        elif max_features <= 10000:
+            feat_score = 0.8
+        elif max_features <= 20000:
+            feat_score = 0.6
+        else:
+            feat_score = 0.2
+        simplicity += 0.3 * feat_score
 
+        # Model-specific param simplicity (30% of simplicity)
         if model_type == "logistic":
             C = params.get("C", 1.0)
             simplicity += 0.3 * (1.0 / (1.0 + C))

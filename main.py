@@ -24,16 +24,13 @@ from automl import HybridAutoML
 from experiments import ParetoAnalyzer, RandomSearchBaseline
 from ui import (
     render_header,
-    # render_config, # Imported locally in main()
     render_footer,
     render_results_summary,
-    # render_knee_point_info,
     render_decision_support_panel,
     plot_pareto_front_2d,
     plot_pareto_front_3d,
     plot_search_history,
     show_solutions_table,
-    # compare_with_baseline
 )
 
 import warnings
@@ -70,12 +67,14 @@ def main():
             """
         This system is designed to help you **explore and optimize** NLP pipelines for your specific dataset.
         
-        ### 🧬 Search Space (4 Genes)
-        We optimize four key components of the NLP pipeline:
-        1. **Scaler**: Data normalization (e.g., Standard, MinMax)
+        ### 🧬 Search Space (6 Genes)
+        We optimize six key components of the NLP pipeline:
+        1. **Scaler**: Data normalization (e.g., Standard, MaxAbs, Robust)
         2. **Dimensionality Reduction**: Feature reduction (e.g., PCA, SelectKBest)
-        3. **Vectorizer**: Text representation (e.g., TF-IDF, Count)
-        4. **Model**: The classifier (e.g., Logistic Regression, SVM, LightGBM)
+        3. **Vectorizer**: Text representation (TF-IDF, Count)
+        4. **Model**: The classifier (e.g., Logistic Regression, SVM, LightGBM, SGD)
+        5. **N-gram Range**: Unigrams, bigrams, or trigrams (1-1, 1-2, 1-3)
+        6. **Max Features**: Vocabulary size limit (5K, 10K, 20K, unlimited)
 
         ### 🎯 Objectives (3 Comparisons)
         The system finds the best trade-offs between:

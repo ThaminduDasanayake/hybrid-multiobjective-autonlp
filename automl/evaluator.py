@@ -7,6 +7,12 @@ from .persistence import ResultStore
 
 logger = get_logger("evaluator")
 
+# Sentinel fitness values for invalid/error individuals.
+# Directionally correct for DEAP weights (1.0, -1.0, 1.0):
+#   F1=0 (worst), latency=huge (worst), interpretability=0 (worst)
+PENALTY_FITNESS = (0.0, 1e6, 0.0)
+ERROR_FITNESS = (0.0, 1e7, 0.0)
+
 class PipelineEvaluator:
     """
     Evaluates pipeline individuals using Bayesian Optimization.
@@ -59,7 +65,7 @@ class PipelineEvaluator:
         # Safe-Pairing Logic
         if not self._validate_structure(scaler_type, dim_reduction_type, model_type):
             logger.warning(f"Invalid structure: {individual}. applying penalty.")
-            return -1.0, 2.0, -1.0
+            return PENALTY_FITNESS
         
         try:
             # Run Bayesian Optimization
@@ -79,12 +85,8 @@ class PipelineEvaluator:
                 scaler_type, dim_reduction_type, vectorizer_type, model_type, ngram_range, max_features, bo_result["best_params"]
             )
             
-            # Normalize objectives
-            norm_f1 = self._normalize_objective(f1_score, "f1_score")
-            norm_latency = self._normalize_objective(latency, "latency")
-            norm_interp = self._normalize_objective(
-                interpretability, "interpretability"
-            )
+            # Update observed objective ranges (for reporting only)
+            self._update_objective_ranges(f1_score, latency, interpretability)
             
             # Store result
             result = {
@@ -116,33 +118,20 @@ class PipelineEvaluator:
                 "timestamp": time.time()
             }, generation=generation)
             
-            # Return raw normalized values (DEAP handles maximization/minimization via weights)
-            # Weights are (1.0, -1.0, 1.0) -> Max F1, Min Latency, Max Interp
-            return norm_f1, norm_latency, norm_interp
+            # Return raw values — DEAP handles direction via weights (1.0, -1.0, 1.0)
+            return f1_score, latency, interpretability
             
         except Exception as e:
             logger.error(f"Error evaluating individual {individual}: {e}")
-            return -1.0, 2.0, -1.0
+            return ERROR_FITNESS
 
-    def _normalize_objective(self, value: float, obj_name: str) -> float:
-        """Normalize objective value to [0, 1] range. Direction is handled by DEAP weights."""
-        # Update ranges
-        if value < self.objective_ranges[obj_name]["min"]:
-            self.objective_ranges[obj_name]["min"] = value
-        if value > self.objective_ranges[obj_name]["max"]:
-            self.objective_ranges[obj_name]["max"] = value
-
-        min_val = self.objective_ranges[obj_name]["min"]
-        max_val = self.objective_ranges[obj_name]["max"]
-
-        if abs(max_val - min_val) < 1e-10:
-            return 0.5
-
-        normalized = (value - min_val) / (max_val - min_val)
-
-        # We want strict [0, 1] mapping where 0=min_val, 1=max_val
-        # Direction is handled by DEAP weights
-        return normalized
+    def _update_objective_ranges(self, f1: float, latency: float, interpretability: float):
+        """Track observed min/max for each objective (for reporting only)."""
+        for obj_name, value in [("f1_score", f1), ("latency", latency), ("interpretability", interpretability)]:
+            if value < self.objective_ranges[obj_name]["min"]:
+                self.objective_ranges[obj_name]["min"] = value
+            if value > self.objective_ranges[obj_name]["max"]:
+                self.objective_ranges[obj_name]["max"] = value
 
     def _validate_structure(self, scaler: str, dim_reduction: str, model: str) -> bool:
         """
@@ -150,14 +139,13 @@ class PipelineEvaluator:
         
         Rules:
         1. MultinomialNB requires non-negative input.
-           - Incompatible with StandardScaler (unless with_mean=False and data is non-neg? But user reported failure).
+           - Incompatible with StandardScaler (produces negative values via centering).
+           - Incompatible with RobustScaler (uses median/IQR, can produce negatives).
            - Incompatible with PCA (TruncatedSVD produces negative values).
         """
         if model == "naive_bayes":
-            # Rule 1: Scaler
-            # MaxAbsScaler is safe. MinMaxScaler is safe. None is safe.
-            # StandardScaler is unsafe if it produces negative values.
-            if scaler == "standard":
+            # Rule 1: Scalers that can produce negative values
+            if scaler in ("standard", "robust"):
                 return False
                 
             # Rule 2: Dim Reduction
@@ -192,7 +180,7 @@ class PipelineEvaluator:
         # Preprocessing Complexity (Scaler + Dim Reduction) (20%)
         scaler_scores = {
             None: 1.0,
-            "minmax": 0.9,
+            "maxabs": 0.9,
             "standard": 0.9,
             "robust": 0.85
         }

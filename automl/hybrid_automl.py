@@ -25,7 +25,6 @@ class HybridAutoML:
         n_generations: int = 10,
         bo_calls: int = 15,
         random_state: int = 42,
-        early_stopping: bool = True,
         checkpoint_dir: str = None,
     ):
         self.X_train = X_train
@@ -59,7 +58,7 @@ class HybridAutoML:
         logger.info("Starting Hybrid AutoML...")
         start_time = time.time()
         
-        hof = self.search_engine.run(callback)
+        self.search_engine.run(callback)
         
         total_time = time.time() - start_time
         logger.info(f"Total runtime: {total_time:.2f}s")

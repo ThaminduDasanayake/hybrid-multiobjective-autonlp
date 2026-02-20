@@ -73,7 +73,6 @@ def main():
             n_generations=config.get('n_generations', 10),
             bo_calls=config.get('bo_calls', 15),
             random_state=42,
-            early_stopping=True,
             checkpoint_dir=os.path.join(jobs_dir, job_id, "checkpoints")
         )
         
