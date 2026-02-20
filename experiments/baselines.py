@@ -71,8 +71,12 @@ class RandomSearchBaseline:
 
                 # Cross-validation score
                 cv_scores = cross_val_score(
-                    pipeline, X_train, y_train,
-                    cv=self.cv, scoring='f1_weighted', n_jobs=-1
+                    pipeline,
+                    X_train,
+                    y_train,
+                    cv=self.cv,
+                    scoring="f1_weighted",
+                    n_jobs=-1,
                 )
                 f1_score = cv_scores.mean()
 
@@ -81,15 +85,17 @@ class RandomSearchBaseline:
                     vectorizer_type, model_type, params
                 )
 
-                self.results.append({
-                    "vectorizer": vectorizer_type,
-                    "model": model_type,
-                    "params": params,
-                    "f1_score": f1_score,
-                    "latency": inference_time,
-                    "interpretability": interpretability,
-                    "iteration": i
-                })
+                self.results.append(
+                    {
+                        "vectorizer": vectorizer_type,
+                        "model": model_type,
+                        "params": params,
+                        "f1_score": f1_score,
+                        "latency": inference_time,
+                        "interpretability": interpretability,
+                        "iteration": i,
+                    }
+                )
 
                 if (i + 1) % 10 == 0:
                     print(f"  Completed {i + 1}/{self.n_iterations} iterations")
@@ -104,11 +110,15 @@ class RandomSearchBaseline:
                 "total_evaluations": len(self.results),
                 "best_f1": max([r["f1_score"] for r in self.results]),
                 "best_latency": min([r["latency"] for r in self.results]),
-                "best_interpretability": max([r["interpretability"] for r in self.results])
-            }
+                "best_interpretability": max(
+                    [r["interpretability"] for r in self.results]
+                ),
+            },
         }
 
-    def _sample_random_params(self, vectorizer_type: str, model_type: str) -> Dict[str, Any]:
+    def _sample_random_params(
+        self, vectorizer_type: str, model_type: str
+    ) -> Dict[str, Any]:
         """Sample random hyperparameters."""
         params = {}
 
@@ -134,8 +144,9 @@ class RandomSearchBaseline:
 
         return params
 
-    def _build_pipeline(self, vectorizer_type: str, model_type: str,
-                        params: Dict[str, Any]) -> Pipeline:
+    def _build_pipeline(
+        self, vectorizer_type: str, model_type: str, params: Dict[str, Any]
+    ) -> Pipeline:
         """Build sklearn pipeline."""
         ngram_max = params.get("ngram_range_max", 1)
 
@@ -144,14 +155,14 @@ class RandomSearchBaseline:
                 ngram_range=(1, ngram_max),
                 min_df=params.get("min_df", 1),
                 max_df=params.get("max_df", 1.0),
-                max_features=params.get("max_features", 5000)
+                max_features=params.get("max_features", 5000),
             )
         else:
             vectorizer = CountVectorizer(
                 ngram_range=(1, ngram_max),
                 min_df=params.get("min_df", 1),
                 max_df=params.get("max_df", 1.0),
-                max_features=params.get("max_features", 5000)
+                max_features=params.get("max_features", 5000),
             )
 
         if model_type == "logistic":
@@ -160,7 +171,7 @@ class RandomSearchBaseline:
                 penalty=params.get("penalty", "l2"),
                 solver="saga",
                 max_iter=1000,
-                random_state=self.random_state
+                random_state=self.random_state,
             )
         elif model_type == "naive_bayes":
             model = MultinomialNB(alpha=params.get("alpha", 1.0))
@@ -170,7 +181,7 @@ class RandomSearchBaseline:
                 penalty=params.get("penalty", "l2"),
                 dual="auto",
                 max_iter=1000,
-                random_state=self.random_state
+                random_state=self.random_state,
             )
         else:  # random_forest
             model = RandomForestClassifier(
@@ -178,14 +189,14 @@ class RandomSearchBaseline:
                 max_depth=params.get("max_depth", None),
                 min_samples_split=params.get("min_samples_split", 2),
                 random_state=self.random_state,
-                n_jobs=-1
+                n_jobs=-1,
             )
 
         return Pipeline([("vectorizer", vectorizer), ("classifier", model)])
 
-    def _compute_interpretability(self, vectorizer_type: str,
-                                  model_type: str,
-                                  params: Dict[str, Any]) -> float:
+    def _compute_interpretability(
+        self, vectorizer_type: str, model_type: str, params: Dict[str, Any]
+    ) -> float:
         """Compute interpretability score (matches HybridAutoML evaluator formula)."""
         score = 0.0
 
@@ -196,7 +207,7 @@ class RandomSearchBaseline:
             "svm": 0.7,
             "random_forest": 0.4,
             "lightgbm": 0.3,
-            "sgd": 0.9
+            "sgd": 0.9,
         }
         score += 0.3 * model_scores.get(model_type, 0.5)
 
@@ -280,11 +291,15 @@ class GridSearchBaseline:
             "vectorizer": ["tfidf", "count"],
             "model": ["logistic", "naive_bayes", "svm"],
             "max_features": [1000, 5000],
-            "ngram_max": [1, 2]
+            "ngram_max": [1, 2],
         }
 
-        total = (len(grid["vectorizer"]) * len(grid["model"]) *
-                 len(grid["max_features"]) * len(grid["ngram_max"]))
+        total = (
+            len(grid["vectorizer"])
+            * len(grid["model"])
+            * len(grid["max_features"])
+            * len(grid["ngram_max"])
+        )
 
         count = 0
         for vec in grid["vectorizer"]:
@@ -298,13 +313,15 @@ class GridSearchBaseline:
                             "max_df": 1.0,
                             "C": 1.0,
                             "alpha": 1.0,
-                            "penalty": "l2"
+                            "penalty": "l2",
                         }
 
                         try:
-                            baseline = RandomSearchBaseline(n_iterations=1,
-                                                            cv=self.cv,
-                                                            random_state=self.random_state)
+                            baseline = RandomSearchBaseline(
+                                n_iterations=1,
+                                cv=self.cv,
+                                random_state=self.random_state,
+                            )
                             pipeline = baseline._build_pipeline(vec, model, params)
 
                             start_time = time.time()
@@ -314,8 +331,12 @@ class GridSearchBaseline:
                             inference_time = (time.time() - inference_start) / 100
 
                             cv_scores = cross_val_score(
-                                pipeline, X_train, y_train,
-                                cv=self.cv, scoring='f1_weighted', n_jobs=-1
+                                pipeline,
+                                X_train,
+                                y_train,
+                                cv=self.cv,
+                                scoring="f1_weighted",
+                                n_jobs=-1,
                             )
                             f1_score = cv_scores.mean()
 
@@ -323,14 +344,16 @@ class GridSearchBaseline:
                                 vec, model, params
                             )
 
-                            self.results.append({
-                                "vectorizer": vec,
-                                "model": model,
-                                "params": params,
-                                "f1_score": f1_score,
-                                "latency": inference_time,
-                                "interpretability": interpretability
-                            })
+                            self.results.append(
+                                {
+                                    "vectorizer": vec,
+                                    "model": model,
+                                    "params": params,
+                                    "f1_score": f1_score,
+                                    "latency": inference_time,
+                                    "interpretability": interpretability,
+                                }
+                            )
 
                             count += 1
                             print(f"  Completed {count}/{total} configurations")
@@ -343,8 +366,16 @@ class GridSearchBaseline:
             "all_solutions": self.results,
             "stats": {
                 "total_evaluations": len(self.results),
-                "best_f1": max([r["f1_score"] for r in self.results]) if self.results else 0,
-                "best_latency": min([r["latency"] for r in self.results]) if self.results else 1,
-                "best_interpretability": max([r["interpretability"] for r in self.results]) if self.results else 0
-            }
+                "best_f1": (
+                    max([r["f1_score"] for r in self.results]) if self.results else 0
+                ),
+                "best_latency": (
+                    min([r["latency"] for r in self.results]) if self.results else 1
+                ),
+                "best_interpretability": (
+                    max([r["interpretability"] for r in self.results])
+                    if self.results
+                    else 0
+                ),
+            },
         }

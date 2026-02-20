@@ -31,8 +31,4 @@ def clean_params(params: dict) -> dict:
     """Clean parameter dict — convert numpy types and remove internal keys."""
     if not isinstance(params, dict):
         return params
-    return {
-        k: to_python_type(v)
-        for k, v in params.items()
-        if not k.startswith("_")
-    }
+    return {k: to_python_type(v) for k, v in params.items() if not k.startswith("_")}

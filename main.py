@@ -201,7 +201,9 @@ def main():
             if st.session_state.active_job_id:
                 log_file = f"logs/run_{st.session_state.active_job_id}.log"
                 if os.path.exists(log_file):
-                    st.caption(f"Showing logs for job: {st.session_state.active_job_id}")
+                    st.caption(
+                        f"Showing logs for job: {st.session_state.active_job_id}"
+                    )
                     with open(log_file, "r") as f:
                         # Read last 50 lines
                         lines = f.readlines()[-50:]

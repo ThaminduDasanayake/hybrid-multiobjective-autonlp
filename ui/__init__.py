@@ -5,7 +5,7 @@ from .layout import (
     render_config,
     render_footer,
     render_results_summary,
-    render_decision_support_panel
+    render_decision_support_panel,
 )
 from .visuals import (
     plot_pareto_front_2d,

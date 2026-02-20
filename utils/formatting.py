@@ -1,11 +1,10 @@
-
 def format_time(seconds: float) -> str:
     """
     Format time duration into a human-readable string.
-    
+
     Args:
         seconds: Time in seconds
-        
+
     Returns:
         Formatted string:
         - If < 60s: "45.2s"
