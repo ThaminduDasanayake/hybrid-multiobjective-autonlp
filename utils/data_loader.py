@@ -25,8 +25,9 @@ class DataLoader:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True, parents=True)
 
-    def load_dataset(self, dataset_name: str, subset: str = "train",
-                     max_samples: int = None) -> Tuple[List[str], np.ndarray]:
+    def load_dataset(
+        self, dataset_name: str, subset: str = "train", max_samples: int = None
+    ) -> Tuple[List[str], np.ndarray]:
         """
         Load a dataset, using cache if available.
 
@@ -56,13 +57,16 @@ class DataLoader:
 
         # Apply max_samples if specified
         if max_samples is not None and len(texts) > max_samples:
-            indices = np.random.choice(len(texts), max_samples, replace=False)
+            rng = np.random.RandomState(42)
+            indices = rng.choice(len(texts), max_samples, replace=False)
             texts = [texts[i] for i in indices]
             labels = labels[indices]
 
         return texts, labels
 
-    def _download_dataset(self, dataset_name: str, subset: str) -> Tuple[List[str], np.ndarray]:
+    def _download_dataset(
+        self, dataset_name: str, subset: str
+    ) -> Tuple[List[str], np.ndarray]:
         """
         Download dataset from Hugging Face or sklearn.
 
@@ -86,7 +90,9 @@ class DataLoader:
 
     def _load_20newsgroups(self, subset: str) -> Tuple[List[str], np.ndarray]:
         """Load 20 Newsgroups dataset."""
-        data = fetch_20newsgroups(subset=subset, remove=('headers', 'footers', 'quotes'))
+        data = fetch_20newsgroups(
+            subset=subset, remove=("headers", "footers", "quotes")
+        )
         return data.data, np.array(data.target)
 
     def _load_imdb(self, subset: str) -> Tuple[List[str], np.ndarray]:
@@ -128,26 +134,26 @@ class DataLoader:
                 "description": "Multi-class document classification (20 categories)",
                 "num_classes": 20,
                 "task": "multi-class classification",
-                "domain": "news articles"
+                "domain": "news articles",
             },
             "imdb": {
                 "description": "Binary sentiment analysis (positive/negative)",
                 "num_classes": 2,
                 "task": "binary classification",
-                "domain": "movie reviews"
+                "domain": "movie reviews",
             },
             "ag_news": {
                 "description": "News categorization (4 categories)",
                 "num_classes": 4,
                 "task": "multi-class classification",
-                "domain": "news headlines"
+                "domain": "news headlines",
             },
             "banking77": {
                 "description": "Intent classification (77 intents)",
                 "num_classes": 77,
                 "task": "multi-class classification",
-                "domain": "banking queries"
-            }
+                "domain": "banking queries",
+            },
         }
 
         return info.get(dataset_name, {"description": "Unknown dataset"})

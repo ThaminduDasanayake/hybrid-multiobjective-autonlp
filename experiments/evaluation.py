@@ -14,9 +14,12 @@ class ParetoAnalyzer:
     """
 
     @staticmethod
-    def is_dominated(solution_a: Dict[str, float], solution_b: Dict[str, float],
-                     objectives: List[str] = ["f1_score", "latency", "interpretability"],
-                     maximize: List[bool] = [True, False, True]) -> bool:
+    def is_dominated(
+        solution_a: Dict[str, float],
+        solution_b: Dict[str, float],
+        objectives: List[str] = ["f1_score", "latency", "interpretability"],
+        maximize: List[bool] = [True, False, True],
+    ) -> bool:
         """
         Check if solution_a is dominated by solution_b.
 
@@ -57,9 +60,11 @@ class ParetoAnalyzer:
         return better_or_equal and strictly_better
 
     @staticmethod
-    def get_pareto_front(solutions: List[Dict[str, Any]],
-                         objectives: List[str] = ["f1_score", "latency", "interpretability"],
-                         maximize: List[bool] = [True, False, True]) -> List[Dict[str, Any]]:
+    def get_pareto_front(
+        solutions: List[Dict[str, Any]],
+        objectives: List[str] = ["f1_score", "latency", "interpretability"],
+        maximize: List[bool] = [True, False, True],
+    ) -> List[Dict[str, Any]]:
         """
         Extract the Pareto front from a set of solutions.
 
@@ -88,9 +93,11 @@ class ParetoAnalyzer:
         return pareto_front
 
     @staticmethod
-    def compute_knee_point(pareto_front: List[Dict[str, Any]],
-                           objectives: List[str] = ["f1_score", "latency", "interpretability"],
-                           maximize: List[bool] = [True, False, True]) -> Dict[str, Any]:
+    def compute_knee_point(
+        pareto_front: List[Dict[str, Any]],
+        objectives: List[str] = ["f1_score", "latency", "interpretability"],
+        maximize: List[bool] = [True, False, True],
+    ) -> Dict[str, Any]:
         """
         Compute the knee point of the Pareto front.
 
@@ -146,12 +153,15 @@ class ParetoAnalyzer:
         return pareto_front[knee_idx]
 
     @staticmethod
-    def compute_metrics(solutions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def compute_metrics(
+        solutions: List[Dict[str, Any]], pareto_front: List[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
-        Compute summary metrics for a set of solutions.
+        Compute comprehensive metrics for a set of solutions.
 
         Args:
             solutions: List of solution dictionaries
+            pareto_front: Optional pre-computed Pareto front (avoids O(n²) recomputation)
 
         Returns:
             Dictionary of metrics
@@ -164,8 +174,9 @@ class ParetoAnalyzer:
         latencies = [sol["latency"] for sol in solutions]
         interpretabilities = [sol["interpretability"] for sol in solutions]
 
-        # Get Pareto front
-        pareto_front = ParetoAnalyzer.get_pareto_front(solutions)
+        # Use pre-computed Pareto front if provided, otherwise compute it
+        if pareto_front is None:
+            pareto_front = ParetoAnalyzer.get_pareto_front(solutions)
 
         # Compute knee point
         knee_point = ParetoAnalyzer.compute_knee_point(pareto_front)
@@ -178,31 +189,29 @@ class ParetoAnalyzer:
                 "min": np.min(f1_scores),
                 "max": np.max(f1_scores),
                 "mean": np.mean(f1_scores),
-                "std": np.std(f1_scores)
+                "std": np.std(f1_scores),
             },
             "latency": {
                 "min": np.min(latencies),
                 "max": np.max(latencies),
                 "mean": np.mean(latencies),
-                "std": np.std(latencies)
+                "std": np.std(latencies),
             },
             "interpretability": {
                 "min": np.min(interpretabilities),
                 "max": np.max(interpretabilities),
                 "mean": np.mean(interpretabilities),
-                "std": np.std(interpretabilities)
+                "std": np.std(interpretabilities),
             },
-            "knee_point": knee_point
+            "knee_point": knee_point,
         }
-
-        metrics.setdefault("pareto_front_size", 0)
-        metrics.setdefault("total_solutions", 0)
-        metrics.setdefault("dominated_solutions", 0)
 
         return metrics
 
     @staticmethod
-    def compare_solutions(sol_a: Dict[str, Any], sol_b: Dict[str, Any]) -> Dict[str, str]:
+    def compare_solutions(
+        sol_a: Dict[str, Any], sol_b: Dict[str, Any]
+    ) -> Dict[str, str]:
         """
         Compare two solutions across all objectives.
 
@@ -218,7 +227,7 @@ class ParetoAnalyzer:
         objectives = [
             ("f1_score", True),
             ("latency", False),
-            ("interpretability", True)
+            ("interpretability", True),
         ]
 
         for obj, maximize in objectives:
@@ -249,7 +258,7 @@ class MetricsTracker:
             "best_f1": [],
             "best_latency": [],
             "best_interpretability": [],
-            "pareto_size": []
+            "pareto_size": [],
         }
 
     def update(self, generation: int, solutions: List[Dict[str, Any]]):
