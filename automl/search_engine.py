@@ -38,12 +38,12 @@ class EvolutionarySearch:
 
         # Expanded gene pool (Structural Complexity)
         self.gene_pool = {
-            "scaler": [None, "standard", "maxabs", "robust"],
-            "dim_reduction": [None, "pca", "select_k_best"],
+            "scaler": [None, "maxabs", "robust"],  # "standard"
+            "dim_reduction": [None, "select_k_best"],  # "pca"
             "vectorizer": ["tfidf", "count"],
-            "model": ["logistic", "naive_bayes", "svm", "random_forest", "sgd"],
-            "ngram_range": ["1-1", "1-2", "1-3"],
-            "max_features": [5000, 10000, 20000, "None"],
+            "model": ["logistic", "naive_bayes", "svm"],  # "random_forest", "sgd"
+            "ngram_range": ["1-1", "1-2"],  # "1-3"
+            "max_features": [5000, 10000, "None"],  # 20000
         }
 
         # Conditionally add LightGBM (Fix 6)
@@ -263,7 +263,7 @@ class EvolutionarySearch:
             # For each offspring, check if it exists in the evaluation cache.
             # If so, force a heavy mutation to encourage exploration.
 
-            max_retries = 3
+            max_retries = 0
             for i, ind in enumerate(offspring):
                 if ind.fitness.valid:
                     continue

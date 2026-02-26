@@ -34,7 +34,7 @@ class BayesianOptimizer:
     optimizes its hyperparameters using Gaussian Process-based BO.
     """
 
-    def __init__(self, n_calls: int = 20, cv: int = 3, random_state: int = 42):
+    def __init__(self, n_calls: int = 20, cv: int = 2, random_state: int = 42):
         """
         Initialize the Bayesian Optimizer.
 

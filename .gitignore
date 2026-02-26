@@ -17,4 +17,5 @@ data
 tests/
 jobs/
 logs/
+docs/
 *.log
