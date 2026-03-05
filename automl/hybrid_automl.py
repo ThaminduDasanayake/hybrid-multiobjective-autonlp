@@ -41,7 +41,9 @@ class HybridAutoML:
         self.result_store.load_checkpoint()
 
         self.bo_optimizer = BayesianOptimizer(
-            n_calls=bo_calls, cv=3, random_state=random_state,
+            n_calls=bo_calls,
+            cv=3,
+            random_state=random_state,
             disable_bo=disable_bo,
         )
 

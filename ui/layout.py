@@ -377,12 +377,20 @@ def render_analysis_view(results, key_prefix="default"):
 
     st.markdown("---")
 
+    all_solutions = results.get("all_solutions", [])
+    if not all_solutions:
+        st.warning("No evaluated solutions found for analysis.")
+        render_footer()
+        return
+
     # Compute metrics and recompute Pareto front from all solutions for consistency
     analyzer = ParetoAnalyzer()
-    metrics = analyzer.compute_metrics(results["all_solutions"])
+    # metrics = analyzer.compute_metrics(results["all_solutions"])
+    metrics = analyzer.compute_metrics(all_solutions)
     # Ensure pareto_front is present or recompute
     if "pareto_front" not in results:
-        pareto_front = analyzer.get_pareto_front(results["all_solutions"])
+        pareto_front = analyzer.get_pareto_front(all_solutions)
+        # pareto_front = analyzer.get_pareto_front(results["all_solutions"])
     else:
         pareto_front = results["pareto_front"]
 

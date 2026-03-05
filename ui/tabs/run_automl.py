@@ -16,7 +16,7 @@ def monitor_active_job(job_manager, config):
     # If job just finished during this fragment execution, trigger a full rerun
     if active_job["status"] in ["completed", "failed"]:
         st.rerun()
- 
+
     if active_job["status"] == "created":
         st.info("⏳ Job created, waiting for worker...")
 
@@ -107,10 +107,14 @@ def run_automl(job_manager):
 
     # Run button
     # Disable run button if job is running
-    is_running = (active_job is not None) and (active_job.get("status") == "running")
-    run_button = st.button("🚀 Run AutoML", type="primary", disabled=is_running)
+    # is_running = (active_job is not None) and (active_job.get("status") == "running")
+    # run_button = st.button("🚀 Run AutoML", type="primary", disabled=is_running)
+    is_active = (active_job is not None) and (
+        active_job.get("status") in {"created", "running"}
+    )
+    run_button = st.button("🚀 Run AutoML", type="primary", disabled=is_active)
 
-    if is_running:
+    if is_active:
         st.info(f"🔄 Job {st.session_state.active_job_id} is running...")
     elif st.session_state.results is not None:
         st.success("✅ Results available - view them in the 'History & Analysis' tab")

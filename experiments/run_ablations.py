@@ -125,7 +125,9 @@ def main() -> None:
     # --- Load data ---
     data_loader = DataLoader(cache_dir="./data")
     X_train, y_train = data_loader.load_dataset(
-        args.dataset, subset="train", max_samples=args.max_samples,
+        args.dataset,
+        subset="train",
+        max_samples=args.max_samples,
     )
     logger.info(f"Loaded {len(X_train)} training samples")
 
@@ -147,7 +149,18 @@ def main() -> None:
 
     # --- Compute metrics ---
     analyzer = ParetoAnalyzer()
-    metrics = analyzer.compute_metrics(results["all_solutions"])
+    # metrics = analyzer.compute_metrics(results["all_solutions"])]
+    metrics = analyzer.compute_metrics(results.get("all_solutions", []))
+    if not metrics:
+        logger.warning("No valid solutions were produced; writing empty metrics.")
+        metrics = {
+            "total_solutions": 0,
+            "pareto_front_size": 0,
+            "f1_score": {"max": 0.0},
+            "latency": {"min": 0.0},
+            "interpretability": {"max": 0.0},
+            "hypervolume": 0.0,
+        }
 
     # --- Print summary ---
     print("\n" + "=" * 60)

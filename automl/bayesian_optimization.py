@@ -30,7 +30,13 @@ class BayesianOptimizer:
     optimizes its hyperparameters using Gaussian Process-based BO.
     """
 
-    def __init__(self, n_calls: int = 20, cv: int = 2, random_state: int = 42, disable_bo: bool = False):
+    def __init__(
+        self,
+        n_calls: int = 20,
+        cv: int = 2,
+        random_state: int = 42,
+        disable_bo: bool = False,
+    ):
         """
         Initialize the Bayesian Optimizer.
 
@@ -45,6 +51,7 @@ class BayesianOptimizer:
         self.cv = cv
         self.random_state = random_state
         self.disable_bo = disable_bo
+        self._rng = np.random.RandomState(random_state)
 
         # Set numpy random seed
         np.random.seed(random_state)
@@ -118,9 +125,16 @@ class BayesianOptimizer:
         # ── GA-only ablation: skip BO, sample one random config ──────────
         if self.disable_bo:
             return self._random_sample_evaluate(
-                space, scaler_type, dim_reduction_type,
-                vectorizer_type, model_type, ngram_range,
-                max_features, X_train, y_train, optimization_start,
+                space,
+                scaler_type,
+                dim_reduction_type,
+                vectorizer_type,
+                model_type,
+                ngram_range,
+                max_features,
+                X_train,
+                y_train,
+                optimization_start,
             )
 
         # Track evaluation metrics
@@ -212,9 +226,17 @@ class BayesianOptimizer:
         }
 
     def _random_sample_evaluate(
-        self, space, scaler_type, dim_reduction_type,
-        vectorizer_type, model_type, ngram_range,
-        max_features, X_train, y_train, optimization_start,
+        self,
+        space,
+        scaler_type,
+        dim_reduction_type,
+        vectorizer_type,
+        model_type,
+        ngram_range,
+        max_features,
+        X_train,
+        y_train,
+        optimization_start,
     ) -> Dict[str, Any]:
         """
         GA-only fallback: sample one random hyperparameter set from *space*,
@@ -226,7 +248,8 @@ class BayesianOptimizer:
         # Sample one random point from the search space
         random_params = {}
         for dim in space:
-            random_params[dim.name] = dim.rvs(random_state=self.random_state)[0]
+            random_params[dim.name] = dim.rvs(random_state=self._rng)[0]
+            # random_params[dim.name] = dim.rvs(random_state=self.random_state)[0]
 
         profile = self.dataset_profile(X_train)
         score = 0.0
@@ -315,15 +338,15 @@ class BayesianOptimizer:
             max_features_upper = 5000
             max_ngram = 2
             max_iter_logistic = 1000
-            max_iter_svm      = 1500
+            max_iter_svm = 1500
         elif profile == "medium":
             max_features_upper = 10000
             max_ngram = 3
             max_iter_logistic = 2000
-            max_iter_svm      = 3000
+            max_iter_svm = 3000
         else:  # large
             max_iter_logistic = 3000
-            max_iter_svm      = 5000
+            max_iter_svm = 5000
             max_features_upper = 15000
             max_ngram = 3
 
@@ -407,4 +430,3 @@ class BayesianOptimizer:
             )
 
         return space
-

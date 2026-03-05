@@ -206,7 +206,18 @@ class ParetoAnalyzer:
                 "std": np.std(interpretabilities),
             },
             "knee_point": knee_point,
-            "hypervolume": ParetoAnalyzer.calculate_hypervolume(pareto_front),
+            "hypervolume": ParetoAnalyzer.calculate_hypervolume(
+                pareto_front,
+                bounds={
+                    "f1_score": (float(np.min(f1_scores)), float(np.max(f1_scores))),
+                    "latency": (float(np.min(latencies)), float(np.max(latencies))),
+                    "interpretability": (
+                        float(np.min(interpretabilities)),
+                        float(np.max(interpretabilities)),
+                    ),
+                },
+            ),
+            # "hypervolume": ParetoAnalyzer.calculate_hypervolume(pareto_front),
         }
 
         return metrics
@@ -249,6 +260,7 @@ class ParetoAnalyzer:
     @staticmethod
     def calculate_hypervolume(
         pareto_front_solutions: List[Dict[str, Any]],
+        bounds: Dict[str, tuple[float, float]] = None,
         ref_point: np.ndarray = None,
     ) -> float:
         """
@@ -281,25 +293,41 @@ class ParetoAnalyzer:
         )
 
         # --- Normalise each objective to [0, 1] ---
-        def _normalise(arr: np.ndarray) -> np.ndarray:
-            lo, hi = arr.min(), arr.max()
+        def _normalise(arr: np.ndarray, lo: float, hi: float) -> np.ndarray:
+            # def _normalise(arr: np.ndarray) -> np.ndarray:
+            #     lo, hi = arr.min(), arr.max()
             if hi - lo > 1e-10:
                 return (arr - lo) / (hi - lo)
             return np.zeros_like(arr)
 
-        f1_norm = _normalise(f1_scores)
-        lat_norm = _normalise(latencies)
-        interp_norm = _normalise(interp_scores)
+        # f1_norm = _normalise(f1_scores)
+        # lat_norm = _normalise(latencies)
+        # interp_norm = _normalise(interp_scores)
+        if bounds is None:
+            bounds = {
+                "f1_score": (float(f1_scores.min()), float(f1_scores.max())),
+                "latency": (float(latencies.min()), float(latencies.max())),
+                "interpretability": (
+                    float(interp_scores.min()),
+                    float(interp_scores.max()),
+                ),
+            }
+
+        f1_norm = _normalise(f1_scores, *bounds["f1_score"])
+        lat_norm = _normalise(latencies, *bounds["latency"])
+        interp_norm = _normalise(interp_scores, *bounds["interpretability"])
 
         # --- Convert to minimisation ---
         # F1 (maximise)        → negate
         # Latency (minimise)   → keep as-is
         # Interpretability (maximise) → negate
-        F = np.column_stack([
-            1.0 - f1_norm,      # minimised F1
-            lat_norm,            # already minimisation
-            1.0 - interp_norm,  # minimised interpretability
-        ])
+        F = np.column_stack(
+            [
+                1.0 - f1_norm,  # minimised F1
+                lat_norm,  # already minimisation
+                1.0 - interp_norm,  # minimised interpretability
+            ]
+        )
 
         # --- Reference point ---
         if ref_point is None:

@@ -17,9 +17,9 @@ logger = get_logger("search_engine")
 # ZeroDivisionError.  We use a negligible epsilon (1e-10) for "ignored"
 # objectives — the selection pressure is effectively zero.
 OPTIMIZATION_MODES = {
-    "multi_3d": (1.0, -1.0, 1.0),     # Default: 3-objective
+    "multi_3d": (1.0, -1.0, 1.0),  # Default: 3-objective
     "single_f1": (1.0, 1e-10, 1e-10),  # Ablation: F1 only
-    "multi_2d": (1.0, -1.0, 1e-10),    # Ablation: F1 + Latency
+    "multi_2d": (1.0, -1.0, 1e-10),  # Ablation: F1 + Latency
 }
 
 
@@ -210,8 +210,13 @@ class EvolutionarySearch:
         # ── Resume from checkpoint if population was saved ────────────────
         checkpoint_state = self.result_store.load_checkpoint() or {}
         saved_genes = checkpoint_state.get("population")
-        start_gen   = int(checkpoint_state.get("completed_generations", 0))
+        start_gen = int(checkpoint_state.get("completed_generations", 0))
 
+        if saved_genes and start_gen >= self.n_generations:
+            logger.info(
+                "Checkpoint indicates all generations are already completed; skipping run."
+            )
+            return
         if saved_genes and 0 < start_gen < self.n_generations:
             logger.info(
                 f"Resuming from checkpoint: restarting at generation "
@@ -231,7 +236,7 @@ class EvolutionarySearch:
                         cached["interpretability"],
                     )
         else:
-            start_gen  = 0
+            start_gen = 0
             population = self.toolbox.population(n=self.population_size)
 
         # HOF is used for early stopping only — final Pareto front is
@@ -299,13 +304,19 @@ class EvolutionarySearch:
 
             hof.update(population)
             # Save population genes so the run can be resumed after a crash/shutdown
-            self.result_store.save_checkpoint(extra_state={
-                "population": [list(ind) for ind in population],
-                "completed_generations": gen + 1,
-            })
+            # self.result_store.save_checkpoint(extra_state={
+            #     "population": [list(ind) for ind in population],
+            #     "completed_generations": gen + 1,
+            # })
 
             if self._check_early_stopping(hof, new_individuals_ratio):
                 logger.info(f"Stopped at generation {gen + 1}")
+                self.result_store.save_checkpoint(
+                    extra_state={
+                        "population": [list(ind) for ind in population],
+                        "completed_generations": gen + 1,
+                    }
+                )
                 break
 
             # Selection & Offspring
@@ -324,6 +335,13 @@ class EvolutionarySearch:
                     del mutant.fitness.values
 
             population[:] = offspring
+            # Save offspring (next generation state) for correct resume behavior
+            self.result_store.save_checkpoint(
+                extra_state={
+                    "population": [list(ind) for ind in population],
+                    "completed_generations": gen + 1,
+                }
+            )
 
             gen_time = time.time() - gen_start_time
             self.result_store.add_time_stats(generation_time=gen_time)

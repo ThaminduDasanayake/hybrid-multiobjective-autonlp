@@ -93,8 +93,14 @@ def main():
                     current_status["best_f1"] = round(best_f1, 4)
                     current_status["cache_hit_rate"] = cache_hit_rate
                     current_status["total_evaluated"] = total_cached
+                # except Exception:
+                #     pass  # Don't let metrics collection crash the callback
                 except Exception:
-                    pass  # Don't let metrics collection crash the callback
+                    logger.debug(
+                        "Live metric collection failed for job %s",
+                        job_id,
+                        exc_info=True,
+                    )
 
                 job_manager.update_status(job_id, current_status)
 
@@ -124,14 +130,24 @@ def main():
 
         analyzer = ParetoAnalyzer()
         metrics = analyzer.compute_metrics(results.get("all_solutions", []))
-        results["metrics"] = {
-            "best_f1": metrics["f1_score"]["max"],
-            "best_latency_ms": metrics["latency"]["min"] * 1000,
-            "best_interpretability": metrics["interpretability"]["max"],
-            "pareto_front_size": metrics["pareto_front_size"],
-            "total_solutions": metrics["total_solutions"],
-            "hypervolume": metrics.get("hypervolume", 0.0),
-        }
+        if not metrics:
+            results["metrics"] = {
+                "best_f1": 0.0,
+                "best_latency_ms": 0.0,
+                "best_interpretability": 0.0,
+                "pareto_front_size": 0,
+                "total_solutions": 0,
+                "hypervolume": 0.0,
+            }
+        else:
+            results["metrics"] = {
+                "best_f1": metrics["f1_score"]["max"],
+                "best_latency_ms": metrics["latency"]["min"] * 1000,
+                "best_interpretability": metrics["interpretability"]["max"],
+                "pareto_front_size": metrics["pareto_front_size"],
+                "total_solutions": metrics["total_solutions"],
+                "hypervolume": metrics.get("hypervolume", 0.0),
+            }
         results["runtime_seconds"] = runtime_seconds
 
         # Save results

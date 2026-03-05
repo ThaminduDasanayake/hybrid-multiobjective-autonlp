@@ -185,5 +185,3 @@ class PipelineEvaluator:
                 return False
 
         return True
-
-

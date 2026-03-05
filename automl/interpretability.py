@@ -30,7 +30,7 @@ def interpretability_score(
     Components and rationale:
       - Model complexity           (30%): Linear models expose per-feature weights
                                           directly; ensembles require aggregation.
-      - Feature space transparency (20%): Vectorizer type × feature count.
+      - Feature space transparency (20%): Vectorizer type x feature count.
                                           Both what features are and how many must
                                           be audited determine practical transparency.
       - Preprocessing complexity   (20%): Steps that transform the feature space
@@ -62,10 +62,9 @@ def interpretability_score(
         "20000": 0.6,
         "None": 0.35,
     }
-    feature_transparency = (
-        vectorizer_scores.get(vectorizer, 0.5)
-        * feature_count_scores.get(str(max_features), 0.5)
-    )
+    feature_transparency = vectorizer_scores.get(
+        vectorizer, 0.5
+    ) * feature_count_scores.get(str(max_features), 0.5)
     score += 0.2 * feature_transparency
 
     # Preprocessing complexity (Scaler + Dim Reduction) (20%)
@@ -98,7 +97,12 @@ def interpretability_score(
         simplicity += 0.6 * (1.0 / (1.0 + C))
     elif model == "random_forest":
         max_depth = params.get("max_depth", 10)
-        simplicity += 0.6 * (1.0 / (1.0 + max_depth / 10))
+        if max_depth in (None, "None"):
+            depth_term = 0.5
+        else:
+            depth_term = 1.0 / (1.0 + float(max_depth) / 10)
+        simplicity += 0.6 * depth_term
+        # simplicity += 0.6 * (1.0 / (1.0 + max_depth / 10))
     else:
         simplicity += 0.6 * 0.5
 
