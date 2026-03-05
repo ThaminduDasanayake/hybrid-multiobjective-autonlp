@@ -18,8 +18,8 @@ logger = get_logger("search_engine")
 # objectives — the selection pressure is effectively zero.
 OPTIMIZATION_MODES = {
     "multi_3d": (1.0, -1.0, 1.0),  # Default: 3-objective
-    "single_f1": (1.0, 1e-10, 1e-10),  # Ablation: F1 only
-    "multi_2d": (1.0, -1.0, 1e-10),  # Ablation: F1 + Latency
+    "single_f1": (1.0, -1e-10, -1e-10),  # Ablation: F1 only
+    "multi_2d": (1.0, -1.0, -1e-10),  # Ablation: F1 + Latency
 }
 
 
