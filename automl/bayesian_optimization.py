@@ -1,24 +1,20 @@
 import time
-from typing import Dict, Tuple, Any, Optional
+from typing import Dict, Any, Optional
 import numpy as np
 from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
-from sklearn.preprocessing import (
-    StandardScaler,
-    MinMaxScaler,
-    MaxAbsScaler,
-    RobustScaler,
-)
-from sklearn.decomposition import PCA, TruncatedSVD
+from sklearn.preprocessing import MaxAbsScaler, RobustScaler
+from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_selection import SelectKBest, f_classif
-from sklearn.linear_model import LogisticRegression, SGDClassifier
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.svm import LinearSVC
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import cross_val_score
 from skopt import gp_minimize
 from skopt.space import Real, Integer, Categorical
 from skopt.utils import use_named_args
+
+from .pipeline_builder import build_pipeline
+from utils.logger import get_logger
+
+logger = get_logger("bayesian_optimization")
 
 try:
     from lightgbm import LGBMClassifier
@@ -34,7 +30,7 @@ class BayesianOptimizer:
     optimizes its hyperparameters using Gaussian Process-based BO.
     """
 
-    def __init__(self, n_calls: int = 20, cv: int = 2, random_state: int = 42):
+    def __init__(self, n_calls: int = 20, cv: int = 2, random_state: int = 42, disable_bo: bool = False):
         """
         Initialize the Bayesian Optimizer.
 
@@ -42,10 +38,13 @@ class BayesianOptimizer:
             n_calls: Number of BO iterations
             cv: Number of cross-validation folds
             random_state: Random seed for reproducibility
+            disable_bo: If True, skip gp_minimize and evaluate one random
+                        hyperparameter sample instead (GA-only ablation)
         """
         self.n_calls = n_calls
         self.cv = cv
         self.random_state = random_state
+        self.disable_bo = disable_bo
 
         # Set numpy random seed
         np.random.seed(random_state)
@@ -116,6 +115,14 @@ class BayesianOptimizer:
             n_samples,
         )
 
+        # ── GA-only ablation: skip BO, sample one random config ──────────
+        if self.disable_bo:
+            return self._random_sample_evaluate(
+                space, scaler_type, dim_reduction_type,
+                vectorizer_type, model_type, ngram_range,
+                max_features, X_train, y_train, optimization_start,
+            )
+
         # Track evaluation metrics
         scores = []
         inference_times = []
@@ -125,7 +132,7 @@ class BayesianOptimizer:
             # Objective function for BO
             try:
                 # Build pipeline
-                pipeline = self._build_pipeline(
+                pipeline = build_pipeline(
                     scaler_type,
                     dim_reduction_type,
                     vectorizer_type,
@@ -133,7 +140,7 @@ class BayesianOptimizer:
                     ngram_range,
                     max_features,
                     params,
-                    profile,
+                    random_state=self.random_state,
                 )
 
                 # Cross-validation score first (fail-fast: avoids wasted fit if CV fails)
@@ -204,6 +211,78 @@ class BayesianOptimizer:
             "optimization_time": optimization_time,
         }
 
+    def _random_sample_evaluate(
+        self, space, scaler_type, dim_reduction_type,
+        vectorizer_type, model_type, ngram_range,
+        max_features, X_train, y_train, optimization_start,
+    ) -> Dict[str, Any]:
+        """
+        GA-only fallback: sample one random hyperparameter set from *space*,
+        evaluate it with cross-validation, and return the result.
+
+        On any failure the F1 score is set to 0.0 so the GA can naturally
+        eliminate the bad individual without crashing the run.
+        """
+        # Sample one random point from the search space
+        random_params = {}
+        for dim in space:
+            random_params[dim.name] = dim.rvs(random_state=self.random_state)[0]
+
+        profile = self.dataset_profile(X_train)
+        score = 0.0
+        inference_time = 0.001
+        variance = 0.0
+
+        try:
+            pipeline = build_pipeline(
+                scaler_type,
+                dim_reduction_type,
+                vectorizer_type,
+                model_type,
+                ngram_range,
+                max_features,
+                random_params,
+                random_state=self.random_state,
+            )
+
+            cv_scores = cross_val_score(
+                pipeline,
+                X_train,
+                y_train,
+                cv=self.cv,
+                scoring="f1_weighted",
+                n_jobs=-1,
+                error_score=0.0,
+            )
+            score = cv_scores.mean()
+            variance = np.var(cv_scores)
+
+            if np.isnan(score):
+                score = 0.0
+
+            # Measure inference time
+            pipeline.fit(X_train, y_train)
+            inf_start = time.time()
+            _ = pipeline.predict(X_train[:100])
+            inference_time = (time.time() - inf_start) / 100
+
+        except Exception as e:
+            logger.warning(
+                f"Random pipeline failed (BO disabled), returning F1=0.0: {e}"
+            )
+            score = 0.0
+
+        optimization_time = time.time() - optimization_start
+
+        return {
+            "best_params": random_params,
+            "best_score": score,
+            "variance": variance,
+            "inference_time": inference_time,
+            "profile": profile,
+            "optimization_time": optimization_time,
+        }
+
     def _get_search_space(
         self,
         scaler_type: str,
@@ -230,13 +309,21 @@ class BayesianOptimizer:
         space = []
 
         # Dataset-aware limits
+        # max_iter is also scaled: small datasets converge in far fewer iterations,
+        # so capping it avoids wasting BO budget on non-converging configs.
         if profile == "small":
             max_features_upper = 5000
             max_ngram = 2
+            max_iter_logistic = 1000
+            max_iter_svm      = 1500
         elif profile == "medium":
             max_features_upper = 10000
             max_ngram = 3
+            max_iter_logistic = 2000
+            max_iter_svm      = 3000
         else:  # large
+            max_iter_logistic = 3000
+            max_iter_svm      = 5000
             max_features_upper = 15000
             max_ngram = 3
 
@@ -252,8 +339,6 @@ class BayesianOptimizer:
 
             space.extend([Integer(10, max_components, name="pca_n_components")])
         elif dim_reduction_type == "select_k_best":
-            # Dynamic limit to avoid warnings
-            # If max_features is None, we don't know exact count, but stick to profile default
             # Dynamic limit to avoid warnings
             # If max_features is None, we don't know exact count, but stick to profile default
             if str(max_features_val) == "None":
@@ -281,7 +366,7 @@ class BayesianOptimizer:
             space.extend(
                 [
                     Real(0.01, 10.0, prior="log-uniform", name="C"),
-                    Integer(1000, 3000, name="max_iter"),
+                    Integer(500, max_iter_logistic, name="max_iter"),
                 ]
             )
         elif model_type == "naive_bayes":
@@ -291,7 +376,7 @@ class BayesianOptimizer:
                 [
                     Real(0.01, 10.0, prior="log-uniform", name="C"),
                     Categorical(["l1", "l2"], name="penalty"),
-                    Integer(1000, 5000, name="max_iter"),
+                    Integer(500, max_iter_svm, name="max_iter"),
                 ]
             )
         elif model_type == "random_forest":
@@ -323,148 +408,3 @@ class BayesianOptimizer:
 
         return space
 
-    def _build_pipeline(
-        self,
-        scaler_type: str,
-        dim_reduction_type: str,
-        vectorizer_type: str,
-        model_type: str,
-        ngram_range: str,
-        max_features: Any,
-        params: Dict[str, Any],
-        profile: str,
-    ) -> Pipeline:
-        """
-        Build a sklearn pipeline from configuration and parameters.
-
-        Args:
-            scaler_type: Type of scaler
-            dim_reduction_type: Type of dimensionality reduction
-            vectorizer_type: Type of vectorizer
-            model_type: Type of model
-            params: Hyperparameters
-            profile: Dataset profile
-
-        Returns:
-            Configured sklearn Pipeline
-        """
-        steps = []
-
-        # Build vectorizer
-        # Sanitize ngram_range: Handle numpy string and ensure tuple of ints
-        if isinstance(ngram_range, (str, np.str_)):
-            min_n, max_n = map(int, str(ngram_range).split("-"))
-        else:
-            # Fallback or assume it's already a tuple/list (though type hint says str)
-            min_n, max_n = map(int, ngram_range)
-
-        # Sanitize max_features: Handle numpy string/int and "None" string
-        if str(max_features) == "None":
-            max_feat = None
-        else:
-            max_feat = int(max_features)
-
-        if vectorizer_type == "tfidf":
-            vectorizer = TfidfVectorizer(
-                ngram_range=(min_n, max_n),
-                min_df=params.get("min_df", 1),
-                max_df=params.get("max_df", 1.0),
-                max_features=max_feat,
-            )
-        elif vectorizer_type == "count":
-            vectorizer = CountVectorizer(
-                ngram_range=(min_n, max_n),
-                min_df=params.get("min_df", 1),
-                max_df=params.get("max_df", 1.0),
-                max_features=max_feat,
-            )
-        else:
-            raise ValueError(f"Unknown vectorizer type: {vectorizer_type}")
-        steps.append(("vectorizer", vectorizer))
-
-        # 2. Scaler
-        if scaler_type == "standard":
-            steps.append(("scaler", StandardScaler(with_mean=False)))
-        elif scaler_type == "maxabs":
-            # MaxAbsScaler is the correct choice for sparse text data (TF-IDF/Count).
-            # It scales by maximum absolute value without shifting center, preserving sparsity.
-            steps.append(("scaler", MaxAbsScaler()))
-        elif scaler_type == "robust":
-            steps.append(("scaler", RobustScaler(with_centering=False)))
-
-        # 3. Dim Reduction
-        if dim_reduction_type == "pca":
-            # Using TruncatedSVD for interactions
-            n_components = params.get("pca_n_components", 50)
-            steps.append(("dim_reduction", TruncatedSVD(n_components=n_components)))
-        elif dim_reduction_type == "select_k_best":
-            k = int(params.get("k_best_k", 100))
-            steps.append(("dim_reduction", SelectKBest(f_classif, k=k)))
-
-        # 4. Model
-        if model_type == "logistic":
-            # Use saga universally — supports multiclass natively, sparse data, and L2 penalty.
-            # liblinear is deprecated for multiclass in sklearn >=1.8.
-            model = LogisticRegression(
-                C=params.get("C", 1.0),
-                solver="saga",
-                penalty="l2",
-                max_iter=params.get("max_iter", 3000),
-                n_jobs=-1,
-                random_state=self.random_state,
-            )
-        elif model_type == "naive_bayes":
-            model = MultinomialNB(alpha=params.get("alpha", 1.0))
-        elif model_type == "svm":
-            # Dual selection: Prefer dual=True when n_samples < n_features or sparse data
-            dual = "auto"
-            if scaler_type != "standard":
-                dual = True
-
-            model = LinearSVC(
-                C=params.get("C", 1.0),
-                penalty=params.get("penalty", "l2"),
-                dual=dual,
-                max_iter=params.get("max_iter", 5000),
-                random_state=self.random_state,
-            )
-        elif model_type == "random_forest":
-            model = RandomForestClassifier(
-                n_estimators=params.get("n_estimators", 100),
-                max_depth=params.get("max_depth", None),
-                min_samples_split=params.get("min_samples_split", 2),
-                random_state=self.random_state,
-                n_jobs=-1,
-            )
-        elif model_type == "lightgbm":
-            if LGBMClassifier is None:
-                # Log warning and raise exception to be caught by evaluator (or return dummy)
-                # Evaluator catches Exception and returns penalty.
-                # That fits "log a warning and skip".
-                raise ImportError("LightGBM is not installed.")
-
-            model = LGBMClassifier(
-                n_estimators=params.get("n_estimators", 100),
-                learning_rate=params.get("learning_rate", 0.1),
-                num_leaves=params.get("num_leaves", 31),
-                random_state=self.random_state,
-                n_jobs=-1,
-                verbose=-1,
-            )
-        elif model_type == "sgd":
-            model = SGDClassifier(
-                loss=params.get("loss", "hinge"),
-                penalty=params.get("penalty", "l2"),
-                alpha=params.get("alpha", 1e-4),
-                max_iter=params.get("max_iter", 2000),
-                random_state=self.random_state,
-            )
-        else:
-            raise ValueError(f"Unknown model type: {model_type}")
-
-        steps.append(("classifier", model))
-
-        # Create pipeline
-        pipeline = Pipeline(steps)
-
-        return pipeline

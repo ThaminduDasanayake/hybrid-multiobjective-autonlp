@@ -1,5 +1,7 @@
 import numpy as np
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Any
+
+from pymoo.indicators.hv import HV
 
 
 class ParetoAnalyzer:
@@ -204,6 +206,7 @@ class ParetoAnalyzer:
                 "std": np.std(interpretabilities),
             },
             "knee_point": knee_point,
+            "hypervolume": ParetoAnalyzer.calculate_hypervolume(pareto_front),
         }
 
         return metrics
@@ -243,52 +246,65 @@ class ParetoAnalyzer:
 
         return comparison
 
-
-class MetricsTracker:
-    """
-    Track metrics during AutoML search.
-
-    Useful for monitoring progress and generating plots.
-    """
-
-    def __init__(self):
-        """Initialize the metrics tracker."""
-        self.history = {
-            "generation": [],
-            "best_f1": [],
-            "best_latency": [],
-            "best_interpretability": [],
-            "pareto_size": [],
-        }
-
-    def update(self, generation: int, solutions: List[Dict[str, Any]]):
+    @staticmethod
+    def calculate_hypervolume(
+        pareto_front_solutions: List[Dict[str, Any]],
+        ref_point: np.ndarray = None,
+    ) -> float:
         """
-        Update metrics for a generation.
+        Calculate the Hypervolume indicator for a Pareto front.
+
+        The Hypervolume (HV) measures the volume of objective space dominated
+        by the Pareto front and bounded by a reference point.  A larger value
+        indicates a better-quality front.
+
+        All objectives are normalised to [0, 1] and converted to minimisation
+        form (pymoo convention) before computation.
 
         Args:
-            generation: Generation number
-            solutions: Solutions from this generation
-        """
-        self.history["generation"].append(generation)
-
-        # Best objectives
-        f1_scores = [sol["f1_score"] for sol in solutions]
-        latencies = [sol["latency"] for sol in solutions]
-        interpretabilities = [sol["interpretability"] for sol in solutions]
-
-        self.history["best_f1"].append(max(f1_scores))
-        self.history["best_latency"].append(min(latencies))
-        self.history["best_interpretability"].append(max(interpretabilities))
-
-        # Pareto front size
-        pareto_front = ParetoAnalyzer.get_pareto_front(solutions)
-        self.history["pareto_size"].append(len(pareto_front))
-
-    def get_history(self) -> Dict[str, List]:
-        """
-        Get the full history.
+            pareto_front_solutions: List of solution dicts, each containing
+                'f1_score', 'latency', and 'interpretability'.
+            ref_point: Optional reference point in normalised-minimisation
+                space.  Defaults to [1.1, 1.1, 1.1].
 
         Returns:
-            History dictionary
+            Scalar hypervolume score (≥ 0).  Returns 0.0 for empty input.
         """
-        return self.history
+        if not pareto_front_solutions:
+            return 0.0
+
+        # --- Extract raw objective values ---
+        f1_scores = np.array([s["f1_score"] for s in pareto_front_solutions])
+        latencies = np.array([s["latency"] for s in pareto_front_solutions])
+        interp_scores = np.array(
+            [s["interpretability"] for s in pareto_front_solutions]
+        )
+
+        # --- Normalise each objective to [0, 1] ---
+        def _normalise(arr: np.ndarray) -> np.ndarray:
+            lo, hi = arr.min(), arr.max()
+            if hi - lo > 1e-10:
+                return (arr - lo) / (hi - lo)
+            return np.zeros_like(arr)
+
+        f1_norm = _normalise(f1_scores)
+        lat_norm = _normalise(latencies)
+        interp_norm = _normalise(interp_scores)
+
+        # --- Convert to minimisation ---
+        # F1 (maximise)        → negate
+        # Latency (minimise)   → keep as-is
+        # Interpretability (maximise) → negate
+        F = np.column_stack([
+            1.0 - f1_norm,      # minimised F1
+            lat_norm,            # already minimisation
+            1.0 - interp_norm,  # minimised interpretability
+        ])
+
+        # --- Reference point ---
+        if ref_point is None:
+            ref_point = np.array([1.1, 1.1, 1.1])
+
+        # --- Compute hypervolume ---
+        hv_indicator = HV(ref_point=ref_point)
+        return float(hv_indicator.do(F))

@@ -28,17 +28,21 @@ class HybridAutoML:
         bo_calls: int = 15,
         random_state: int = 42,
         checkpoint_dir: str = None,
+        optimization_mode: str = "multi_3d",
+        disable_bo: bool = False,
     ):
         self.X_train = X_train
         self.y_train = y_train
         self.random_state = random_state
+        self.optimization_mode = optimization_mode
 
         # Initialize components
         self.result_store = ResultStore(checkpoint_dir)
         self.result_store.load_checkpoint()
 
         self.bo_optimizer = BayesianOptimizer(
-            n_calls=bo_calls, cv=3, random_state=random_state
+            n_calls=bo_calls, cv=3, random_state=random_state,
+            disable_bo=disable_bo,
         )
 
         self.evaluator = PipelineEvaluator(
@@ -51,6 +55,7 @@ class HybridAutoML:
             random_state=random_state,
             result_store=self.result_store,
             evaluate_fn=self.evaluator.evaluate,
+            optimization_mode=optimization_mode,
         )
 
     def run(self, callback=None) -> Dict[str, Any]:
@@ -86,7 +91,6 @@ class HybridAutoML:
             "search_history": self.result_store.search_history,
             "stats": {
                 "total_evaluations": len(all_solutions),
-                "unique_configurations": len(all_solutions),
                 "pareto_size": len(pareto_solutions),
                 "objective_ranges": self.evaluator.objective_ranges,
                 "total_penalties": total_penalties,
