@@ -11,6 +11,17 @@ from utils.formatting import format_time
 
 logger = get_logger("search_engine")
 
+# Supported optimization modes for ablation studies.
+# Each maps to a DEAP fitness-weight tuple: (F1, Latency, Interpretability).
+# NOTE: DEAP divides wvalues by weights internally, so exact 0.0 would cause
+# ZeroDivisionError.  We use a negligible epsilon (1e-10) for "ignored"
+# objectives — the selection pressure is effectively zero.
+OPTIMIZATION_MODES = {
+    "multi_3d": (1.0, -1.0, 1.0),  # Default: 3-objective
+    "single_f1": (1.0, -1e-10, -1e-10),  # Ablation: F1 only
+    "multi_2d": (1.0, -1.0, -1e-10),  # Ablation: F1 + Latency
+}
+
 
 class EvolutionarySearch:
     """
@@ -24,6 +35,7 @@ class EvolutionarySearch:
         random_state: int,
         result_store: ResultStore,
         evaluate_fn: Callable[[list], tuple],
+        optimization_mode: str = "multi_3d",
     ):
 
         self.population_size = population_size
@@ -32,18 +44,26 @@ class EvolutionarySearch:
         self.result_store = result_store
         self.evaluate_fn = evaluate_fn
 
+        if optimization_mode not in OPTIMIZATION_MODES:
+            raise ValueError(
+                f"Unknown optimization_mode '{optimization_mode}'. "
+                f"Choose from: {list(OPTIMIZATION_MODES.keys())}"
+            )
+        self.optimization_mode = optimization_mode
+        self._weights = OPTIMIZATION_MODES[optimization_mode]
+
         self.stagnation_threshold = 3
         self.stagnation_counter = 0
         self.last_pareto_hash = None
 
         # Expanded gene pool (Structural Complexity)
         self.gene_pool = {
-            "scaler": [None, "standard", "maxabs", "robust"],
-            "dim_reduction": [None, "pca", "select_k_best"],
+            "scaler": [None, "maxabs", "robust"],  # "standard"
+            "dim_reduction": [None, "select_k_best"],  # "pca"
             "vectorizer": ["tfidf", "count"],
-            "model": ["logistic", "naive_bayes", "svm", "random_forest", "sgd"],
-            "ngram_range": ["1-1", "1-2", "1-3"],
-            "max_features": [5000, 10000, 20000, "None"],
+            "model": ["logistic", "naive_bayes", "svm"],  # "random_forest", "sgd"
+            "ngram_range": ["1-1", "1-2"],  # "1-3"
+            "max_features": [5000, 10000, "None"],  # 20000
         }
 
         # Conditionally add LightGBM (Fix 6)
@@ -76,14 +96,22 @@ class EvolutionarySearch:
         return str(val)
 
     def _setup_deap(self):
-        # NOTE: DEAP's creator.create modifies global module state. The hasattr
-        # guards prevent re-creation but also prevent changing weights across
-        # multiple EvolutionarySearch instances in the same process.
-        if not hasattr(creator, "FitnessMulti"):
-            creator.create("FitnessMulti", base.Fitness, weights=(1.0, -1.0, 1.0))
+        # DEAP's creator.create writes module-level globals.  We delete and
+        # re-create them each time so that the weights match the requested
+        # optimization_mode.  This is safe: each worker process only runs one
+        # configuration, and the ablation script spawns fresh processes.
+        if hasattr(creator, "Individual"):
+            del creator.Individual
+        if hasattr(creator, "FitnessMulti"):
+            del creator.FitnessMulti
 
-        if not hasattr(creator, "Individual"):
-            creator.create("Individual", list, fitness=creator.FitnessMulti)
+        creator.create("FitnessMulti", base.Fitness, weights=self._weights)
+        creator.create("Individual", list, fitness=creator.FitnessMulti)
+
+        logger.info(
+            f"DEAP configured for mode '{self.optimization_mode}' "
+            f"with weights {self._weights}"
+        )
 
         self.toolbox = base.Toolbox()
 
@@ -122,7 +150,11 @@ class EvolutionarySearch:
             "population", tools.initRepeat, list, self.toolbox.individual
         )
 
-        self.toolbox.register("mate", tools.cxTwoPoint)
+        # cxUniform is used instead of cxTwoPoint because the chromosome is composed
+        # of categorical genes with no meaningful ordering. Two-point crossover relies
+        # on gene adjacency (a syntactic property), while uniform crossover treats each
+        # gene independently — more appropriate for unordered categorical representations.
+        self.toolbox.register("mate", tools.cxUniform, indpb=0.5)
         self.toolbox.register("mutate", self._mutate_individual, indpb=0.5)
         self.toolbox.register("select", tools.selNSGA2)
         self.toolbox.register("evaluate", self.evaluate_fn)
@@ -175,12 +207,48 @@ class EvolutionarySearch:
         return False
 
     def run(self, callback: Optional[Callable] = None):
-        population = self.toolbox.population(n=self.population_size)
+        # ── Resume from checkpoint if population was saved ────────────────
+        checkpoint_state = self.result_store.load_checkpoint() or {}
+        saved_genes = checkpoint_state.get("population")
+        start_gen = int(checkpoint_state.get("completed_generations", 0))
+
+        if saved_genes and start_gen >= self.n_generations:
+            logger.info(
+                "Checkpoint indicates all generations are already completed; skipping run."
+            )
+            return
+        if saved_genes and 0 < start_gen < self.n_generations:
+            logger.info(
+                f"Resuming from checkpoint: restarting at generation "
+                f"{start_gen + 1}/{self.n_generations} "
+                f"with {len(saved_genes)} individuals and "
+                f"{len(self.result_store.eval_cache)} cached evaluations."
+            )
+            population = [creator.Individual(genes) for genes in saved_genes]
+            # Restore fitness from eval cache where possible
+            for ind in population:
+                key = self.result_store.get_individual_key(ind)
+                cached = self.result_store.get_cached_evaluation(key)
+                if cached:
+                    ind.fitness.values = (
+                        cached["f1_score"],
+                        cached["latency"],
+                        cached["interpretability"],
+                    )
+        else:
+            start_gen = 0
+            population = self.toolbox.population(n=self.population_size)
+
         # HOF is used for early stopping only — final Pareto front is
         # recomputed from all evaluated solutions in hybrid_automl.py.
         hof = tools.ParetoFront()
+        # Seed HOF with any already-evaluated individuals when resuming
+        if start_gen > 0:
+            valid_restored = [ind for ind in population if ind.fitness.valid]
+            if valid_restored:
+                hof.update(valid_restored)
 
-        for gen in range(self.n_generations):
+        for gen in range(start_gen, self.n_generations):
             gen_start_time = time.time()
             logger.info(f"Generation {gen + 1}/{self.n_generations}")
 
@@ -212,7 +280,6 @@ class EvolutionarySearch:
 
             # Evaluate invalid individuals
             evaluate_with_gen = lambda ind: self.toolbox.evaluate(ind, generation=gen)
-            invalid_ind = [ind for ind in population if not ind.fitness.valid]
             fitnesses = map(evaluate_with_gen, invalid_ind)
 
             # Track failure reasons for logging
@@ -236,10 +303,20 @@ class EvolutionarySearch:
                 )
 
             hof.update(population)
-            self.result_store.save_checkpoint()
+            # Save population genes so the run can be resumed after a crash/shutdown
+            # self.result_store.save_checkpoint(extra_state={
+            #     "population": [list(ind) for ind in population],
+            #     "completed_generations": gen + 1,
+            # })
 
             if self._check_early_stopping(hof, new_individuals_ratio):
                 logger.info(f"Stopped at generation {gen + 1}")
+                self.result_store.save_checkpoint(
+                    extra_state={
+                        "population": [list(ind) for ind in population],
+                        "completed_generations": gen + 1,
+                    }
+                )
                 break
 
             # Selection & Offspring
@@ -257,45 +334,14 @@ class EvolutionarySearch:
                     self.toolbox.mutate(mutant)
                     del mutant.fitness.values
 
-            # ---------------------------------------------------------
-            # Structural Uniqueness Check & Heavy Mutation
-            # ---------------------------------------------------------
-            # For each offspring, check if it exists in the evaluation cache.
-            # If so, force a heavy mutation to encourage exploration.
-
-            max_retries = 3
-            for i, ind in enumerate(offspring):
-                if ind.fitness.valid:
-                    continue
-
-                retries = 0
-                while retries < max_retries:
-                    key = self.result_store.get_individual_key(ind)
-                    if self.result_store.get_cached_evaluation(key):
-                        logger.info(
-                            f"Collision detected for {ind}. Applying Aggressive Mutation (3 genes)."
-                        )
-                        gene_indices = np.random.choice(range(6), size=3, replace=False)
-                        for gi in gene_indices:
-                            ind[gi] = self._random_gene(self._GENE_NAMES[gi])
-                        del ind.fitness.values
-                        retries += 1
-                    else:
-                        break
-
-                # Fallback: generate a completely new individual if still colliding
-                if retries >= max_retries:
-                    key = self.result_store.get_individual_key(ind)
-                    if self.result_store.get_cached_evaluation(key):
-                        logger.warning(
-                            f"Failed to resolve collision after {max_retries} retries. Generating new individual."
-                        )
-                        new_ind = self.toolbox.individual()
-                        offspring[i] = new_ind
-                        del offspring[i].fitness.values
-            # ---------------------------------------------------------
-
             population[:] = offspring
+            # Save offspring (next generation state) for correct resume behavior
+            self.result_store.save_checkpoint(
+                extra_state={
+                    "population": [list(ind) for ind in population],
+                    "completed_generations": gen + 1,
+                }
+            )
 
             gen_time = time.time() - gen_start_time
             self.result_store.add_time_stats(generation_time=gen_time)

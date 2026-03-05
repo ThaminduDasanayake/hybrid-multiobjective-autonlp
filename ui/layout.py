@@ -1,7 +1,18 @@
-import streamlit as st
+import json
+
 import numpy as np
+import streamlit as st
+
+from experiments import ParetoAnalyzer
+from ui.visuals import (
+    plot_pareto_front_2d,
+    plot_pareto_front_3d,
+    show_solutions_table,
+    plot_search_history,
+)
 
 from utils import clean_params
+from utils import to_python_type, to_json_safe
 from utils.formatting import format_time
 
 
@@ -180,7 +191,7 @@ def render_results_summary(results: dict, metrics: dict):
     """
     st.subheader("📊 Results Summary")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
         st.metric("Total Evaluations", results["stats"]["total_evaluations"])
@@ -194,6 +205,14 @@ def render_results_summary(results: dict, metrics: dict):
     with col4:
         best_f1 = metrics["f1_score"]["max"]
         st.metric("Best F1 Score", f"{best_f1:.4f}")
+
+    with col5:
+        hv = metrics.get("hypervolume", 0.0)
+        st.metric(
+            "Hypervolume",
+            f"{hv:.4f}",
+            help="Volume of objective space dominated by the Pareto front. Higher = better quality front.",
+        )
 
     # Objective statistics
     st.markdown("### Objective Statistics")
@@ -351,3 +370,135 @@ def render_decision_support_panel(results: dict, metrics: dict):
 
         with st.expander("View Hyperparameters"):
             st.json(clean_params(knee_point["params"]))
+
+
+def render_analysis_view(results, key_prefix="default"):
+    """Result visualization helper to be reused in both tabs."""
+
+    st.markdown("---")
+
+    all_solutions = results.get("all_solutions", [])
+    if not all_solutions:
+        st.warning("No evaluated solutions found for analysis.")
+        render_footer()
+        return
+
+    # Compute metrics and recompute Pareto front from all solutions for consistency
+    analyzer = ParetoAnalyzer()
+    # metrics = analyzer.compute_metrics(results["all_solutions"])
+    metrics = analyzer.compute_metrics(all_solutions)
+    # Ensure pareto_front is present or recompute
+    if "pareto_front" not in results:
+        pareto_front = analyzer.get_pareto_front(all_solutions)
+        # pareto_front = analyzer.get_pareto_front(results["all_solutions"])
+    else:
+        pareto_front = results["pareto_front"]
+
+    results_for_ui = dict(results)
+    results_for_ui["pareto_front"] = pareto_front
+
+    # Results summary
+    render_results_summary(results_for_ui, metrics)
+
+    st.markdown("---")
+
+    # Decision support panel
+    render_decision_support_panel(results_for_ui, metrics)
+
+    st.markdown("---")
+
+    # Visualizations
+    st.subheader("📊 Pareto Front Visualization")
+
+    t1, t2, t3 = st.tabs(["3D View", "2D Projections", "Search History"])
+
+    with t1:
+        st.markdown("### 3D Pareto Front")
+        plot_pareto_front_3d(
+            results["all_solutions"],
+            results_for_ui["pareto_front"],
+            metrics["knee_point"],
+            key=f"{key_prefix}_3d",
+        )
+
+    with t2:
+        st.markdown("### 2D Projections")
+
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+            st.markdown("#### F1 Score vs Latency")
+            plot_pareto_front_2d(
+                results["all_solutions"],
+                results_for_ui["pareto_front"],
+                metrics["knee_point"],
+                x_metric="f1_score",
+                y_metric="latency",
+                key=f"{key_prefix}_2d_f1_lat",
+            )
+
+        with c2:
+            st.markdown("#### F1 Score vs Interpretability")
+            plot_pareto_front_2d(
+                results["all_solutions"],
+                results_for_ui["pareto_front"],
+                metrics["knee_point"],
+                x_metric="f1_score",
+                y_metric="interpretability",
+                key=f"{key_prefix}_2d_f1_int",
+            )
+
+        with c3:
+            st.markdown("#### Latency vs Interpretability")
+            plot_pareto_front_2d(
+                results["all_solutions"],
+                results_for_ui["pareto_front"],
+                metrics["knee_point"],
+                x_metric="latency",
+                y_metric="interpretability",
+                key=f"{key_prefix}_2d_lat_int",
+            )
+
+    with t3:
+        st.markdown("### Search Progress Over Generations")
+        plot_search_history(results["search_history"], key=f"{key_prefix}_history")
+
+    st.markdown("---")
+
+    # Solutions table
+    st.subheader("📋 All Solutions")
+
+    show_solutions_table(
+        results["all_solutions"], results_for_ui["pareto_front"], metrics["knee_point"]
+    )
+
+    # Download results
+    st.markdown("---")
+    st.subheader("💾 Download Results")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # Download all solutions
+        results_json = json.dumps(to_python_type(results["all_solutions"]), indent=2)
+        st.download_button(
+            label="📥 Download All Solutions (JSON)",
+            data=results_json,
+            file_name="automl_solutions.json",
+            mime="application/json",
+            key=f"download_all_{key_prefix}",
+        )
+
+    with col2:
+        # Download Pareto front
+        pareto_json = json.dumps(to_json_safe(results_for_ui["pareto_front"]), indent=2)
+        st.download_button(
+            label="📥 Download Pareto Front (JSON)",
+            data=pareto_json,
+            file_name="pareto_front.json",
+            mime="application/json",
+            key=f"download_pareto_{key_prefix}",
+        )
+
+    # Render footer
+    render_footer()

@@ -4,6 +4,7 @@ import time
 from utils.logger import get_logger
 from .bayesian_optimization import BayesianOptimizer
 from .persistence import ResultStore
+from .interpretability import interpretability_score
 
 logger = get_logger("evaluator")
 
@@ -95,8 +96,8 @@ class PipelineEvaluator:
             f1_score = bo_result["best_score"]
             latency = bo_result["inference_time"]
 
-            # Compute interpretability
-            interpretability = self._intrinsic_interpretability_score(
+            # Compute interpretability via shared scoring function
+            interp = interpretability_score(
                 scaler_type,
                 dim_reduction_type,
                 vectorizer_type,
@@ -107,7 +108,7 @@ class PipelineEvaluator:
             )
 
             # Update observed objective ranges (for reporting only)
-            self._update_objective_ranges(f1_score, latency, interpretability)
+            self._update_objective_ranges(f1_score, latency, interp)
 
             # Store result
             result = {
@@ -120,7 +121,7 @@ class PipelineEvaluator:
                 "params": bo_result["best_params"],
                 "f1_score": f1_score,
                 "latency": latency,
-                "interpretability": interpretability,
+                "interpretability": interp,
                 "variance": bo_result["variance"],
             }
             self.result_store.cache_evaluation(cache_key, result)
@@ -136,14 +137,14 @@ class PipelineEvaluator:
                     "max_features": max_features,
                     "f1_score": f1_score,
                     "latency": latency,
-                    "interpretability": interpretability,
+                    "interpretability": interp,
                     "timestamp": time.time(),
                 },
                 generation=generation,
             )
 
             # Return raw values — DEAP handles direction via weights (1.0, -1.0, 1.0)
-            return f1_score, latency, interpretability
+            return f1_score, latency, interp
 
         except Exception as e:
             logger.error(f"Error evaluating individual {individual}: {e}")
@@ -184,89 +185,3 @@ class PipelineEvaluator:
                 return False
 
         return True
-
-    def _intrinsic_interpretability_score(
-        self,
-        scaler: str,
-        dim_reduction: str,
-        vectorizer: str,
-        model: str,
-        ngram_range: str,
-        max_features: Any,
-        params: Dict[str, Any],
-    ) -> float:
-        """Compute intrinsic interpretability score (0.0 to 1.0)."""
-        score = 0.0
-
-        # Model complexity (30%)
-        model_scores = {
-            "logistic": 1.0,
-            "naive_bayes": 0.9,
-            "svm": 0.7,
-            "random_forest": 0.4,
-            "lightgbm": 0.3,
-            "sgd": 0.9,
-        }
-        score += 0.3 * model_scores.get(model, 0.5)
-
-        # Feature transparency (Vectorization) (20%)
-        vectorizer_scores = {"count": 1.0, "tfidf": 0.8}
-        score += 0.2 * vectorizer_scores.get(vectorizer, 0.5)
-
-        # Preprocessing Complexity (Scaler + Dim Reduction) (20%)
-        scaler_scores = {None: 1.0, "maxabs": 0.9, "standard": 0.9, "robust": 0.85}
-        dim_red_scores = {
-            None: 1.0,
-            "select_k_best": 0.8,  # Selects features, keeps meaning
-            "pca": 0.4,  # Projects features, loses meaning
-        }
-
-        preprocessing_score = (
-            scaler_scores.get(scaler, 0.5) + dim_red_scores.get(dim_reduction, 0.5)
-        ) / 2
-        score += 0.2 * preprocessing_score
-
-        # Hyperparameter simplicity (30%)
-        simplicity = 0.0
-
-        # 1. N-gram penalty
-        # "1-1" (unigrams) -> simplest -> 1.0
-        # "1-2" (bigrams) -> medium -> 0.7
-        # "1-3" (trigrams) -> complex -> 0.4
-        ngram_str = str(ngram_range)
-        if ngram_str == "1-1":
-            simplicity += 0.4 * 1.0
-        elif ngram_str == "1-2":
-            simplicity += 0.4 * 0.7
-        else:  # "1-3"
-            simplicity += 0.4 * 0.4
-
-        # 2. Max Features penalty
-        # 5000 -> 1.0
-        # 10000 -> 0.8
-        # 20000 -> 0.6
-        # "None" -> 0.2 (unlimited vocabulary is very hard to interpret)
-        max_feat_str = str(max_features)
-        if max_feat_str == "5000":
-            feat_score = 1.0
-        elif max_feat_str == "10000":
-            feat_score = 0.8
-        elif max_feat_str == "20000":
-            feat_score = 0.6
-        else:  # "None"
-            feat_score = 0.2
-
-        simplicity += 0.3 * feat_score
-
-        if model == "logistic":
-            C = params.get("C", 1.0)
-            simplicity += 0.3 * (1.0 / (1.0 + C))
-        elif model == "random_forest":
-            max_depth = params.get("max_depth", 10)
-            simplicity += 0.3 * (1.0 / (1.0 + max_depth / 10))
-        else:
-            simplicity += 0.3 * 0.5
-
-        score += 0.3 * simplicity
-
-        return max(0.0, min(1.0, score))

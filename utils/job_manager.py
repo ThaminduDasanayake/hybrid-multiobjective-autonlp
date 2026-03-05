@@ -145,6 +145,70 @@ class JobManager:
                 return None
         return None
 
+    def resume_job(self, job_id: str) -> bool:
+        """
+        Resume a previously interrupted job from its checkpoint.
+
+        Re-launches the worker with the same job_id and config so that
+        EvolutionarySearch.run() picks up the saved population and
+        completed_generations from checkpoint.pkl.
+
+        Returns True if the worker was launched, False on error.
+        """
+        job_dir = self._get_job_dir(job_id)
+        config_path = job_dir / "config.json"
+
+        if not config_path.exists():
+            logger.error(f"Cannot resume job {job_id}: config.json not found")
+            return False
+
+        checkpoint_path = job_dir / "checkpoints" / "checkpoint.pkl"
+        if not checkpoint_path.exists():
+            logger.warning(
+                f"No checkpoint found for job {job_id}; job will restart from scratch"
+            )
+
+        # Mark as running again
+        status = self.get_status(job_id) or {"job_id": job_id}
+        if status.get("status") == "running":
+            logger.warning(f"Job {job_id} is already running; resume request ignored")
+            return False
+        status["status"] = "running"
+        status["message"] = "Resuming from checkpoint..."
+        self.update_status(job_id, status)
+
+        root_dir = Path(__file__).parent.parent
+        worker_script = root_dir / "worker.py"
+
+        cmd = [
+            sys.executable,
+            str(worker_script),
+            "--job-id",
+            job_id,
+            "--config",
+            str(config_path),
+            "--jobs-dir",
+            str(self.jobs_dir),
+        ]
+
+        env = os.environ.copy()
+        env["AUTOML_LOG_FILE"] = f"run_{job_id}.log"
+
+        logger.info(f"Resuming worker for job {job_id}: {' '.join(cmd)}")
+        try:
+            subprocess.Popen(cmd, cwd=str(root_dir), env=env, start_new_session=True)
+            return True
+        except Exception as e:
+            logger.exception(f"Failed to resume worker for job {job_id}: {e}")
+            status["status"] = "failed"
+            status["message"] = "Failed to launch resume worker"
+            self.update_status(job_id, status)
+            return False
+
+        # logger.info(f"Resuming worker for job {job_id}: {' '.join(cmd)}")
+        # subprocess.Popen(cmd, cwd=str(root_dir), env=env, start_new_session=True)
+        # return True
+
     def list_jobs(self) -> Dict[str, Dict[str, Any]]:
         """List all known jobs and their basic status."""
         jobs = {}

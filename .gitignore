@@ -5,6 +5,7 @@ build/
 dist/
 wheels/
 *.egg-info
+.claude
 
 .DS_Store
 .idea/
@@ -17,4 +18,6 @@ data
 tests/
 jobs/
 logs/
+docs/
 *.log
+results/
