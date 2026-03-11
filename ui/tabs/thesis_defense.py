@@ -4,8 +4,8 @@ Thesis Defense tab: comparison tables for ablation study results.
 Scans ``results/ablations/`` for JSON files produced by
 ``experiments/run_ablations.py`` and builds two summary tables:
 
-* **Table 1** – Single-Objective vs. Multi-Objective
-* **Table 2** – Ablation Studies (GA+BO, GA-only, 2-Objective)
+* **Table 1** - Single-Objective vs. Multi-Objective
+* **Table 2** - Ablation Studies (GA+BO, GA-only, 2-Objective)
 
 Provides a single job selector to pick the master run (like the History &
 Analysis tab) and one-click buttons to launch ablation runs.

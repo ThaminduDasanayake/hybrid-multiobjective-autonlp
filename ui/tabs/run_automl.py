@@ -14,7 +14,7 @@ def monitor_active_job(job_manager, config):
         return
 
     # If job just finished during this fragment execution, trigger a full rerun
-    if active_job["status"] in ["completed", "failed"]:
+    if active_job["status"] in ["completed", "failed", "terminated"]:
         st.rerun()
 
     if active_job["status"] == "created":
@@ -46,9 +46,16 @@ def monitor_active_job(job_manager, config):
         with m4:
             st.metric("📊 Unique Pipelines", f"{total_evaluated}")
 
+        # Use a spacer column to push buttons to the left and keep them close
+        
         if st.button(
             "Stop Monitoring (Job continues in background)", key="stop_monitor_btn"
         ):
+            st.session_state.active_job_id = None
+            st.rerun()
+
+        if st.button("🛑 Terminate Job", key="terminate_job_btn", type="primary"):
+            job_manager.terminate_job(st.session_state.active_job_id)
             st.session_state.active_job_id = None
             st.rerun()
 
@@ -95,7 +102,7 @@ def run_automl(job_manager):
     active_job = None
     if st.session_state.active_job_id:
         active_job = job_manager.get_status(st.session_state.active_job_id)
-        if active_job and active_job["status"] in ["completed", "failed"]:
+        if active_job and active_job["status"] in ["completed", "failed", "terminated"]:
             # If job just finished, load results
             if active_job["status"] == "completed" and st.session_state.results is None:
                 st.success("🎉 Job completed successfully!")
@@ -104,6 +111,8 @@ def run_automl(job_manager):
                     st.session_state.results = results
             elif active_job["status"] == "failed":
                 st.error(f"❌ Job failed: {active_job.get('error', 'Unknown error')}")
+            elif active_job["status"] == "terminated":
+                st.warning("🛑 Job was manually terminated.")
 
     # Run button
     # Disable run button if job is running
@@ -116,6 +125,8 @@ def run_automl(job_manager):
 
     if is_active:
         st.info(f"🔄 Job {st.session_state.active_job_id} is running...")
+    elif active_job and active_job.get("status") == "terminated":
+        st.session_state.active_job_id = None  # Clear so Run button is enabled
     elif st.session_state.results is not None:
         st.success("✅ Results available - view them in the 'History & Analysis' tab")
 

@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import signal
 import sys
 import time
 import traceback
@@ -18,6 +19,20 @@ from utils.logger import get_logger
 # Configure logger
 logger = get_logger("worker")
 
+# --- Termination handling ---
+
+class _TerminationRequested(BaseException):
+    """Raised (as BaseException so it bypasses bare `except Exception`) when
+    the job is asked to stop, either via SIGTERM or the stop.signal file."""
+
+_terminate_requested = False
+
+
+def _handle_sigterm(signum, frame):  # noqa: ARG001
+    global _terminate_requested
+    _terminate_requested = True
+    logger.info("Worker received SIGTERM — stopping after current operation")
+
 
 def main():
     parser = argparse.ArgumentParser(description="AutoML Worker Process")
@@ -30,9 +45,13 @@ def main():
     config_path = args.config
     jobs_dir = args.jobs_dir
 
-    logger.info(f"Worker started for job {job_id}")
+    # Register SIGTERM handler so we can stop gracefully
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
+    logger.info(f"Worker started for job {job_id} (PID {os.getpid()})")
 
     job_manager = JobManager(jobs_dir=jobs_dir)
+    stop_file = Path(jobs_dir) / job_id / "stop.signal"
 
     try:
         # Load configuration
@@ -56,6 +75,11 @@ def main():
 
         # Define progress callback with enriched metrics
         def progress_callback(progress_info):
+            # Check for termination request (stop.signal file or SIGTERM)
+            if _terminate_requested or stop_file.exists():
+                logger.info(f"Job {job_id} stop requested — raising TerminationRequested")
+                raise _TerminationRequested()
+
             current_status = job_manager.get_status(job_id)
             if current_status:
                 # Core progress info
@@ -82,12 +106,13 @@ def main():
                             default=0.0,
                         )
 
-                    # Cache hit rate: history entries that were already in cache
-                    # Each unique config is in eval_cache; repeated evals hit cache
-                    cache_hit_rate = 0.0
-                    if total_history > 0:
-                        cache_hits = max(0, total_history - total_cached)
-                        cache_hit_rate = round(cache_hits / total_history * 100, 1)
+                    # Cache hit rate: fraction of cache lookups that returned a hit
+                    total_lookups = store.cache_hit_count + store.cache_miss_count
+                    cache_hit_rate = (
+                        round(store.cache_hit_count / total_lookups * 100, 1)
+                        if total_lookups > 0
+                        else 0.0
+                    )
 
                     current_status["best_f1"] = round(best_f1, 4)
                     current_status["cache_hit_rate"] = cache_hit_rate
@@ -164,6 +189,14 @@ def main():
         job_manager.update_status(job_id, status)
 
         logger.info("Job completed successfully")
+
+    except _TerminationRequested:
+        logger.info(f"Job {job_id} terminated by user request")
+        status = job_manager.get_status(job_id) or {}
+        status["status"] = "terminated"
+        status["message"] = "Job was manually terminated"
+        job_manager.update_status(job_id, status)
+        sys.exit(0)
 
     except Exception as e:
         logger.error(f"Job failed: {e}")

@@ -1,4 +1,5 @@
 import json
+import signal
 import os
 import subprocess
 import sys
@@ -83,7 +84,7 @@ class JobManager:
         env["AUTOML_LOG_FILE"] = f"run_{job_id}.log"
 
         # Start detached process
-        subprocess.Popen(
+        proc = subprocess.Popen(
             cmd,
             cwd=str(root_dir),
             env=env,
@@ -92,6 +93,9 @@ class JobManager:
             # On Unix: start_new_session=True
             start_new_session=True,
         )
+        # Persist PID so the job can be terminated later
+        status["pid"] = proc.pid
+        self.update_status(job_id, status)
 
         return job_id
 
@@ -144,6 +148,83 @@ class JobManager:
                 logger.error(f"Error reading result for job {job_id}: {e}")
                 return None
         return None
+
+    def terminate_job(self, job_id: str) -> bool:
+        """
+        Terminate a running job by killing its worker process group.
+
+        1. Writes a stop.signal file for cooperative shutdown.
+        2. Sends SIGTERM to the entire process group (catches joblib workers too).
+        3. Waits up to 2 s, then sends SIGKILL to any survivors.
+        4. Falls back to psutil for any processes that escaped the group.
+
+        Returns True if termination was handled, False on error.
+        """
+        status = self.get_status(job_id)
+        if not status:
+            logger.error(f"Cannot terminate job {job_id}: status not found")
+            return False
+
+        pid = status.get("pid")
+        if not pid:
+            logger.error(f"Cannot terminate job {job_id}: no PID recorded in status")
+            return False
+
+        # --- cooperative stop: worker checks this file in its callback ---
+        stop_file = self._get_job_dir(job_id) / "stop.signal"
+        try:
+            stop_file.touch()
+        except Exception as e:
+            logger.warning(f"Could not write stop.signal for job {job_id}: {e}")
+
+        # --- primary: kill the whole process group atomically ---
+        # The worker is launched with start_new_session=True so its pgid == pid.
+        # All joblib/sklearn child processes inherit the same pgid.
+        try:
+            os.killpg(pid, signal.SIGTERM)
+            logger.info(f"Sent SIGTERM to process group {pid} for job {job_id}")
+        except ProcessLookupError:
+            logger.warning(f"Process group {pid} for job {job_id} not found (already exited)")
+        except PermissionError as e:
+            logger.error(f"Permission denied killing process group {pid}: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error sending SIGTERM to group {pid}: {e}")
+
+        # Give processes a moment to shut down gracefully
+        time.sleep(2.0)
+
+        # Force-kill anything still alive in the group
+        try:
+            os.killpg(pid, signal.SIGKILL)
+            logger.info(f"Sent SIGKILL to process group {pid} for job {job_id}")
+        except ProcessLookupError:
+            pass  # Group is already gone — that's fine
+        except Exception as e:
+            logger.warning(f"SIGKILL to group {pid} failed: {e}")
+
+        # --- fallback: psutil sweep for any processes outside the group ---
+        try:
+            import psutil
+            try:
+                proc = psutil.Process(pid)
+                survivors = proc.children(recursive=True) + [proc]
+                for p in survivors:
+                    try:
+                        p.kill()
+                        logger.info(f"psutil force-killed PID {p.pid}")
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+            except psutil.NoSuchProcess:
+                pass  # Already gone
+        except ImportError:
+            pass  # psutil not installed; os.killpg above is sufficient
+
+        # Mark job as terminated
+        status["status"] = "terminated"
+        status["message"] = "Job was manually terminated"
+        self.update_status(job_id, status)
+        logger.info(f"Job {job_id} marked as terminated")
+        return True
 
     def resume_job(self, job_id: str) -> bool:
         """
