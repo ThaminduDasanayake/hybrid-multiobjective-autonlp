@@ -1,0 +1,20 @@
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/logs/
+backend/jobs/
+backend/data/
+backend/results/
+backend/.pytest_cache/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Git / IDE
+.git/
+.gitignore
+.claude/
+**/.DS_Store
