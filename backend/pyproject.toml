@@ -1,0 +1,15 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "datasets>=4.7.0",
+    "deap>=1.4.3",
+    "fastapi[standard]>=0.135.1",
+    "numpy>=2.4.3",
+    "pymoo>=0.6.1.6",
+    "scikit-learn>=1.8.0",
+    "scikit-optimize>=0.10.2",
+]
