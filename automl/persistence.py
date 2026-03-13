@@ -21,6 +21,10 @@ class ResultStore:
         self.eval_cache = {}
         self.search_history = []
 
+        # Cache hit/miss counters for live reporting
+        self.cache_hit_count = 0
+        self.cache_miss_count = 0
+
         # Time statistics
         self.total_optimization_time = 0.0
         self.generation_times = []
@@ -42,7 +46,12 @@ class ResultStore:
 
     def get_cached_evaluation(self, key: str) -> Optional[Dict[str, Any]]:
         """Retrieve evaluation from cache."""
-        return self.eval_cache.get(key)
+        result = self.eval_cache.get(key)
+        if result is not None:
+            self.cache_hit_count += 1
+        else:
+            self.cache_miss_count += 1
+        return result
 
     def cache_evaluation(self, key: str, result: Dict[str, Any]):
         """Store evaluation in cache."""
