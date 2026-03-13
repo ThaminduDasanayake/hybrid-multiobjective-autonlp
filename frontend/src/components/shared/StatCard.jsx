@@ -9,7 +9,7 @@ import { Card, CardContent } from "../ui/card";
  *   unit   – optional unit suffix (smaller weight)
  *   dimmed – true when data has not yet arrived (fades the value)
  */
-export default function StatCard({ label, value, unit, dimmed = false }) {
+const StatCard = ({ label, value, unit, dimmed = false }) => {
   return (
     <Card>
       <CardContent>
@@ -25,4 +25,6 @@ export default function StatCard({ label, value, unit, dimmed = false }) {
       </CardContent>
     </Card>
   );
-}
+};
+
+export default StatCard;

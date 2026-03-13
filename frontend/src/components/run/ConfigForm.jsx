@@ -108,7 +108,6 @@ const ConfigForm = ({ onJobStarted }) => {
           />
         </div>
 
-        {/* ── Error banner ────────────────────────────────────────────────── */}
         {error && (
           <Alert variant="destructive">
             <AlertCircle />
@@ -116,7 +115,6 @@ const ConfigForm = ({ onJobStarted }) => {
           </Alert>
         )}
 
-        {/* ── Actions ─────────────────────────────────────────────────────── */}
         <div className="flex gap-3 pt-1">
           <Button type="submit" disabled={submitting} size="lg" className="grow">
             {submitting ? <Loader2 className="animate-spin" /> : <Zap />}

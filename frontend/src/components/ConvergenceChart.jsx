@@ -1,6 +1,6 @@
 import Plot from "react-plotly.js";
 
-export default function ConvergenceChart({ searchHistory = [] }) {
+const ConvergenceChart = ({ searchHistory = [] }) => {
   if (searchHistory.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
@@ -85,4 +85,6 @@ export default function ConvergenceChart({ searchHistory = [] }) {
       style={{ width: "100%", height: "360px" }}
     />
   );
-}
+};
+
+export default ConvergenceChart;

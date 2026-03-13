@@ -1,19 +1,6 @@
-/**
- * DropdownSelector
- *
- * A labelled shadcn <Select> used throughout the app for job/dataset pickers.
- *
- * Props:
- *   label     – text rendered above the trigger (omit to hide)
- *   options   – string[] | { value: string; label: string }[]
- *   value     – currently selected value
- *   onChange  – (value: string) => void
- *   className – overrides the outer wrapper div class (default: "relative max-w-md")
- */
-
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
-export default function DropdownSelector({ label, options = [], value, onChange, className }) {
+const DropdownSelector = ({ label, options = [], value, onChange, className }) => {
   const normalised = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
 
   return (
@@ -33,4 +20,6 @@ export default function DropdownSelector({ label, options = [], value, onChange,
       </Select>
     </div>
   );
-}
+};
+
+export default DropdownSelector;

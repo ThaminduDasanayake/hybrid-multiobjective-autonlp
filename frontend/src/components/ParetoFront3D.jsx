@@ -32,7 +32,7 @@ const PARETO_HOVER_TEMPLATE =
   "Interpretability: %{z:.3f}" +
   "<extra></extra>";
 
-export default function ParetoFront3D({ allSolutions = [], paretoFront = [] }) {
+const ParetoFront3D = ({ allSolutions = [], paretoFront = [] }) => {
   if (allSolutions.length === 0 && paretoFront.length === 0) {
     return (
       <div className="flex h-96 items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
@@ -127,4 +127,6 @@ export default function ParetoFront3D({ allSolutions = [], paretoFront = [] }) {
       style={{ width: "100%", height: "520px" }}
     />
   );
-}
+};
+
+export default ParetoFront3D;

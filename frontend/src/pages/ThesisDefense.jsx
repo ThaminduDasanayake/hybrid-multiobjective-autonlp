@@ -15,8 +15,6 @@ import { Button } from "../components/ui/button";
 import { fmt } from "../utils/formatters";
 import JobConfigCard from "@/components/JobConfigCard.jsx";
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
 function f4(v) {
   return v != null ? Number(v).toFixed(4) : null;
 }
@@ -24,8 +22,6 @@ function fRuntime(secs) {
   if (secs == null) return null;
   return secs < 60 ? `${Number(secs).toFixed(1)} s` : `${(secs / 60).toFixed(1)} m`;
 }
-
-// ─── sub-components ──────────────────────────────────────────────────────────
 
 /** Styled pending pill shown in table cells when data is not yet available. */
 function Pending() {
@@ -107,8 +103,6 @@ function RunButton({ label, queued, onClick }) {
   );
 }
 
-// ─── page ────────────────────────────────────────────────────────────────────
-
 const ThesisDefense = () => {
   // ── job list (drives dataset context, mirroring Streamlit's approach) ─────
   const [jobMap, setJobMap] = useState({});
@@ -119,18 +113,15 @@ const ThesisDefense = () => {
   const [masterRuntime, setMasterRuntime] = useState(null);
   const [masterConfig, setMasterConfig] = useState(null);
 
-  // ── ablation results ──────────────────────────────────────────────────────
   const [ablations, setAblations] = useState(null);
   const [ablationsLoading, setAblationsLoading] = useState(false);
   const [ablationsError, setAblationsError] = useState(null);
 
-  // ── queued ablation runs ───────────────────────────────────────────────────
   const [queued, setQueued] = useState({});
 
   // Derived: true while at least one run is still queued
   const isPolling = Object.values(queued).some(Boolean);
 
-  // ── fetch job list on mount ───────────────────────────────────────────────
   useEffect(() => {
     getJobs()
       .then((data) => {
@@ -195,7 +186,6 @@ const ThesisDefense = () => {
   const gaOnly = d[`ga_only_${dataset}`]?.metrics ?? null;
   const gaOnlyRT = d[`ga_only_${dataset}`]?.runtime_seconds ?? null;
 
-  // ── queue an ablation run ─────────────────────────────────────────────────
   const handleRun = async (mode, disableBo) => {
     const key = `${disableBo ? "ga_only" : mode}_${dataset}`;
     setQueued((q) => ({ ...q, [key]: true }));
@@ -206,12 +196,10 @@ const ThesisDefense = () => {
     }
   };
 
-  // ── render ────────────────────────────────────────────────────────────────
   const completedIds = Object.keys(jobMap);
 
   return (
     <div className="p-8">
-      {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
@@ -274,7 +262,6 @@ const ThesisDefense = () => {
       {/* Only render tables once a job is selected */}
       {selectedJobId && dataset && (
         <div className="space-y-8">
-          {/* ── Error banner ─────────────────────────────────────────────── */}
           {ablationsError && (
             <Alert variant="destructive">
               <AlertCircle />
@@ -329,7 +316,6 @@ const ThesisDefense = () => {
             </table>
           </ComparisonTable>
 
-          {/* ── Table 2: Ablation Studies ────────────────────────────────── */}
           <ComparisonTable
             title="Table 2: Ablation Studies"
             subtitle="Proves the contribution of BO and interpretability to overall quality."

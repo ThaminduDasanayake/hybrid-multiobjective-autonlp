@@ -5,7 +5,7 @@ import { useStore } from "../store";
 import { NAV_ITEMS } from "@/constants.js";
 import { Button } from "@/components/ui/button.jsx";
 
-export default function Layout() {
+const Layout = () => {
   const activeJobId = useStore((s) => s.activeJobId);
   const [expanded, setExpanded] = useState(true);
 
@@ -36,6 +36,8 @@ export default function Layout() {
             variant="ghost"
             size="icon"
             onClick={() => setExpanded(!expanded)}
+            aria-label={expanded ? "Collapse sidebar" : "Expand sidebar"}
+            aria-expanded={expanded}
             className="shrink-0 text-sidebar-foreground hover:bg-accent transition-all rounded-lg h-8 w-8"
             title={expanded ? "Collapse Sidebar" : "Expand Sidebar"}
           >
@@ -62,6 +64,7 @@ export default function Layout() {
               key={to}
               to={to}
               end={end}
+              aria-label={label}
               title={!expanded ? label : undefined}
               className={({ isActive }) =>
                 [
@@ -83,7 +86,9 @@ export default function Layout() {
                         : "text-muted-foreground group-hover:text-accent-foreground"
                     }`}
                   />
-                  {expanded && <span className="truncate whitespace-nowrap">{label}</span>}
+                  <span className={expanded ? "truncate whitespace-nowrap" : "sr-only"}>
+                    {label}
+                  </span>
                 </>
               )}
             </NavLink>
@@ -117,4 +122,6 @@ export default function Layout() {
       </main>
     </div>
   );
-}
+};
+
+export default Layout;

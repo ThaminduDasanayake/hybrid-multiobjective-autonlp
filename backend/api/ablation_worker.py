@@ -128,7 +128,9 @@ def run_ablation(
         "results": to_python_type(results),
     }
 
-    with open(output_file, "w") as f:
+    tmp_file = output_file.with_suffix(f"{output_file.suffix}.tmp")
+    with open(tmp_file, "w") as f:
         json.dump(to_python_type(payload), f, indent=2, allow_nan=False)
+    tmp_file.replace(output_file)
 
     logger.info(f"Ablation saved → {output_file}")

@@ -18,10 +18,6 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       proxy: {
-        // Forward all /api/* requests to the FastAPI backend.
-        // This avoids CORS preflight during development — the browser sees
-        // everything as same-origin (localhost:5173).
-        // Target is read from VITE_API_BASE_URL (falls back to localhost:8000).
         "/api": {
           target: backendUrl,
           changeOrigin: true,

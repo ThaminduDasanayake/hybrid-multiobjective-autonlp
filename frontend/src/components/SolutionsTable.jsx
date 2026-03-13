@@ -14,8 +14,6 @@ import { fmt } from "../utils/formatters";
 import { computeKnee } from "../utils/knee";
 import { Star } from "lucide-react";
 
-// ─── helpers ────────────────────────────────────────────────────────────────
-
 /** Score → coloured badge (green / amber / red). */
 const ScoreBadge = ({ value, unit = "" }) => {
   const n = Number(value ?? 0);
@@ -74,8 +72,6 @@ const RowLabel = ({ text, className }) => (
   </span>
 );
 
-// ─── column definitions ──────────────────────────────────────────────────────
-
 const COLUMNS = [
   { key: "rank", label: "#", align: "center" },
   { key: "model", label: "Model" },
@@ -84,8 +80,6 @@ const COLUMNS = [
   { key: "latency_ms", label: "Latency (ms)", align: "right" },
   { key: "interpretability", label: "Interpretability", align: "right" },
 ];
-
-// ─── component ───────────────────────────────────────────────────────────────
 
 const SolutionsTable = ({ solutions = [], kneePoint = null }) => {
   if (solutions.length === 0) {

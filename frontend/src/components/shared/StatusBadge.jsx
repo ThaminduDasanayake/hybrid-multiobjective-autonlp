@@ -23,7 +23,7 @@ const LABEL_MAP = {
   terminated: "Terminated",
 };
 
-export default function StatusBadge({ status }) {
+const StatusBadge = ({ status }) => {
   const { variant, className } = STYLE_MAP[status] ?? STYLE_MAP.created;
 
   return (
@@ -34,4 +34,6 @@ export default function StatusBadge({ status }) {
       {LABEL_MAP[status] ?? status}
     </Badge>
   );
-}
+};
+
+export default StatusBadge;

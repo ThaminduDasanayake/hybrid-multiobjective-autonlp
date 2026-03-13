@@ -26,12 +26,10 @@ const ParetoFront2D = lazy(() => import("../components/ParetoFront2D"));
 const ConvergenceChart = lazy(() => import("../components/ConvergenceChart"));
 
 const HistoryAnalysis = () => {
-  // ── job list ────────────────────────────────────────────────────────────
   const [jobMap, setJobMap] = useState({}); // { job_id: statusObj }
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobsError, setJobsError] = useState(null);
 
-  // ── selected job ────────────────────────────────────────────────────────
   const [selectedId, setSelectedId] = useState("");
   const [jobData, setJobData] = useState(null); // result.json payload
   const [resultLoading, setResultLoading] = useState(false);
@@ -71,7 +69,6 @@ const HistoryAnalysis = () => {
       .finally(() => setResultLoading(false));
   }, [selectedId]);
 
-  // ── derived values ───────────────────────────────────────────────────────
   const completedIds = Object.keys(jobMap);
   const metrics = jobData?.metrics ?? null;
   const allSolutions = jobData?.all_solutions ?? [];
@@ -79,7 +76,6 @@ const HistoryAnalysis = () => {
   const searchHistory = jobData?.search_history ?? [];
   const runtimeSecs = jobData?.runtime_seconds ?? null;
 
-  // ── render ───────────────────────────────────────────────────────────────
   return (
     <div className="p-8">
       <div className="mb-6">
@@ -89,7 +85,6 @@ const HistoryAnalysis = () => {
         </p>
       </div>
 
-      {/* ── Job selector ────────────────────────────────────────────────── */}
       <div className="mb-6">
         {jobsLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -177,12 +172,8 @@ const HistoryAnalysis = () => {
             />
           </div>
 
-          <DecisionSupportOld kneePoint={metrics?.knee_point} paretoFront={paretoFront} />
-
-          {/* ── Decision support cards ───────────────────────────────── */}
           <DecisionSupport paretoFront={paretoFront} kneePoint={metrics?.knee_point} />
 
-          {/* ── 3D Pareto chart ──────────────────────────────────────── */}
           <section>
             <div className="mb-3 flex items-center justify-between">
               <div>
@@ -267,7 +258,6 @@ const HistoryAnalysis = () => {
             </div>
           </section>
 
-          {/* ── Convergence chart ────────────────────────────────────── */}
           <section>
             <div className="mb-3">
               <h2 className="text-base font-semibold text-foreground">
@@ -291,7 +281,6 @@ const HistoryAnalysis = () => {
             </div>
           </section>
 
-          {/* ── Pareto solutions table ───────────────────────────────── */}
           <section>
             <div className="mb-3">
               <h2 className="text-base font-semibold text-foreground">Pareto-Optimal Pipelines</h2>
@@ -309,90 +298,3 @@ const HistoryAnalysis = () => {
 };
 
 export default HistoryAnalysis;
-import { GitMerge } from "lucide-react";
-import { computeKnee } from "../utils/knee";
-import { Card, CardContent } from "@/components/ui/card.jsx";
-
-const pick = (arr, key, dir) =>
-  arr.reduce((best, sol) =>
-    dir === 1 ? (sol[key] > best[key] ? sol : best) : sol[key] < best[key] ? sol : best,
-  );
-
-const RecommendCard = ({ title, icon: Icon, metricLabel, metricValue, pipeline }) => (
-  <Card className="flex-1 bg-card shadow-sm border-border">
-    <CardContent className="p-5">
-      <div className="mb-3 flex flex-row items-center justify-between">
-        <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
-        <Icon size={18} className="text-muted-foreground" />
-      </div>
-      <div>
-        <p className="text-3xl font-bold tracking-tight text-foreground">{metricValue}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{metricLabel}</p>
-      </div>
-      <div className="mt-4 space-y-1.5 border-t border-border pt-3">
-        {[
-          ["Model", "model"],
-          ["Vectorizer", "vectorizer"],
-          ["Scaler", "scaler"],
-        ].map(([label, key]) => (
-          <div key={key} className="flex justify-between text-xs">
-            <span className="text-muted-foreground">{label}</span>
-            <span className="font-medium text-foreground capitalize">
-              {pipeline[key] ?? "none"}
-            </span>
-          </div>
-        ))}
-      </div>
-    </CardContent>
-  </Card>
-);
-
-const DecisionSupportOld = ({ paretoFront, kneePoint }) => {
-  if (!paretoFront || paretoFront.length === 0) return null;
-
-  const bestAccuracy = pick(paretoFront, "f1_score", 1);
-  const bestSpeed = pick(paretoFront, "latency", -1);
-  const bestInterp = pick(paretoFront, "interpretability", 1);
-  const knee = kneePoint || computeKnee(paretoFront);
-
-  return (
-    <section>
-      <div className="mb-3">
-        <h2 className="text-base font-semibold text-foreground">Decision Support</h2>
-        <p className="text-xs text-muted-foreground">
-          Four recommended pipelines from the Pareto front
-        </p>
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <RecommendCard
-          title="Knee Point ★"
-          icon={GitMerge}
-          metricLabel="Balanced trade-off"
-          metricValue={knee.f1_score.toFixed(4)}
-          pipeline={knee}
-        />
-        <RecommendCard
-          title="Best Accuracy"
-          icon={TrendingUp}
-          metricLabel="F1 Score"
-          metricValue={bestAccuracy.f1_score.toFixed(4)}
-          pipeline={bestAccuracy}
-        />
-        <RecommendCard
-          title="Best Speed"
-          icon={Zap}
-          metricLabel="Latency"
-          metricValue={`${(bestSpeed.latency * 1000).toFixed(4)} ms`}
-          pipeline={bestSpeed}
-        />
-        <RecommendCard
-          title="Best Interp."
-          icon={Star}
-          metricLabel="Interpretability Score"
-          metricValue={bestInterp.interpretability.toFixed(4)}
-          pipeline={bestInterp}
-        />
-      </div>
-    </section>
-  );
-};

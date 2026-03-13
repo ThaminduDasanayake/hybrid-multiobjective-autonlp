@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, GitMerge, Star, TrendingUp, Zap } from "lucide-react";
+import { ChevronDown, ChevronRight, Star, TrendingUp, Zap, Lightbulb } from "lucide-react";
 import { Card, CardContent } from "./ui/card";
 import { computeKnee } from "../utils/knee";
 
@@ -25,7 +25,7 @@ const HyperparametersToggle = ({ params }) => {
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between rounded-md py-1.5 px-2 text-xs font-medium text-foreground bg-muted/30 hover:bg-muted/50 border border-border/50 transition-colors focus:outline-none w-full"
+        className="flex w-full items-center justify-between rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         View Hyperparameters
         {expanded ? (
@@ -89,9 +89,15 @@ const RecommendCard = ({ title, icon: Icon, metricLabel, metricValue, pipeline }
 
       {/* All Objectives */}
       <div className="space-y-1 mt-auto bg-muted/10 p-2.5 rounded-lg border border-border/30">
-        <MetricRow label="F1 Score" value={pipeline.f1_score.toFixed(4)} />
-        <MetricRow label="Latency" value={`${(pipeline.latency * 1000).toFixed(2)} ms`} />
-        <MetricRow label="Interp." value={pipeline.interpretability.toFixed(4)} />
+        <MetricRow label="F1 Score" value={Number(pipeline.f1_score ?? 0).toFixed(4)} />
+        <MetricRow
+          label="Latency"
+          value={`${(Number(pipeline.latency ?? 0) * 1000).toFixed(2)} ms`}
+        />
+        <MetricRow
+          label="Interpretability"
+          value={Number(pipeline.interpretability ?? 0).toFixed(4)}
+        />
       </div>
 
       <HyperparametersToggle params={pipeline.params} />
@@ -104,7 +110,7 @@ const DecisionSupport = ({ paretoFront, kneePoint }) => {
 
   const bestAccuracy = pick(paretoFront, "f1_score", 1);
   const bestSpeed = pick(paretoFront, "latency", -1);
-  const bestInterp = pick(paretoFront, "interpretability", 1);
+  const bestInterpretable = pick(paretoFront, "interpretability", 1);
   const knee = kneePoint || computeKnee(paretoFront);
 
   return (
@@ -117,32 +123,32 @@ const DecisionSupport = ({ paretoFront, kneePoint }) => {
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <RecommendCard
-          title="Knee Point ★"
-          icon={GitMerge}
+          title="Knee Point"
+          icon={Star}
           metricLabel="Balanced trade-off"
-          metricValue={knee.f1_score.toFixed(4)}
+          metricValue={Number(knee?.f1_score ?? 0).toFixed(4)}
           pipeline={knee}
         />
         <RecommendCard
           title="Best Accuracy"
           icon={TrendingUp}
           metricLabel="F1 Score"
-          metricValue={bestAccuracy.f1_score.toFixed(4)}
+          metricValue={Number(bestAccuracy?.f1_score ?? 0).toFixed(4)}
           pipeline={bestAccuracy}
         />
         <RecommendCard
           title="Best Speed"
           icon={Zap}
           metricLabel="Latency"
-          metricValue={`${(bestSpeed.latency * 1000).toFixed(4)} ms`}
+          metricValue={`${(Number(bestSpeed?.latency ?? 0) * 1000).toFixed(4)} ms`}
           pipeline={bestSpeed}
         />
         <RecommendCard
-          title="Best Interp."
-          icon={Star}
+          title="Best Interpretable"
+          icon={Lightbulb}
           metricLabel="Interpretability Score"
-          metricValue={bestInterp.interpretability.toFixed(4)}
-          pipeline={bestInterp}
+          metricValue={Number(bestInterpretable?.interpretability ?? 0).toFixed(4)}
+          pipeline={bestInterpretable}
         />
       </div>
     </section>

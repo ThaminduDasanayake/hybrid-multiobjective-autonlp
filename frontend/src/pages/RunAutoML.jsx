@@ -2,7 +2,7 @@ import { useStore } from "../store";
 import ConfigForm from "../components/run/ConfigForm";
 import LiveTracker from "../components/run/LiveTracker";
 
-export default function RunAutoML() {
+const RunAutoML = () => {
   const { activeJobId, setActiveJobId, resetJob } = useStore();
 
   return (
@@ -23,4 +23,6 @@ export default function RunAutoML() {
       )}
     </div>
   );
-}
+};
+
+export default RunAutoML;
