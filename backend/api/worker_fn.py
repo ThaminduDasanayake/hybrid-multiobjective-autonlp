@@ -69,8 +69,9 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
     _root_file_handler.setFormatter(
         logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     )
-    logging.getLogger().addHandler(_root_file_handler)
-    logging.getLogger().setLevel(logging.INFO)
+    root_logger = logging.getLogger()
+    root_logger.addHandler(_root_file_handler)
+    root_logger.setLevel(logging.INFO)
 
     job_manager = JobManager(jobs_dir=jobs_dir_str)
     jobs_dir = Path(jobs_dir_str)
@@ -229,3 +230,10 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
         status["error"] = str(e)
         status["message"] = f"Failed: {e}"
         job_manager.update_status(job_id, status)
+
+    finally:
+        # Detach the per-job file handler so reused worker processes don't
+        # accumulate handlers across multiple jobs (file descriptor leak +
+        # duplicate log entries in old job files).
+        root_logger.removeHandler(_root_file_handler)
+        _root_file_handler.close()

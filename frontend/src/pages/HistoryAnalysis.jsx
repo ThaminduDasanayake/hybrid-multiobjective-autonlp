@@ -1,5 +1,15 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { AlertCircle, Box, Clock, Layers, Loader2, Star, TrendingUp, Zap } from "lucide-react";
+import {
+  AlertCircle,
+  BarChart3,
+  Box,
+  Clock,
+  Layers,
+  Loader2,
+  Star,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
 import { getJobResult, getJobs } from "../api";
 import DecisionSupport from "../components/DecisionSupport";
 import DropdownSelector from "../components/DropdownSelector";
@@ -189,7 +199,7 @@ const HistoryAnalysis = () => {
             <div className="overflow-hidden rounded-xl border border-border bg-card p-2 shadow-sm">
               <Suspense
                 fallback={
-                  <div className="flex h-[520px] items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <div className="flex h-130 items-center justify-center gap-2 text-sm text-muted-foreground">
                     <Loader2 size={16} className="animate-spin" />
                     Loading chart…
                   </div>
@@ -215,7 +225,7 @@ const HistoryAnalysis = () => {
                 </p>
                 <Suspense
                   fallback={
-                    <div className="flex h-[360px] items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <div className="flex h-90 items-center justify-center gap-2 text-sm text-muted-foreground">
                       <Loader2 size={16} className="animate-spin" />
                       Loading chart…
                     </div>
@@ -238,7 +248,7 @@ const HistoryAnalysis = () => {
                 </p>
                 <Suspense
                   fallback={
-                    <div className="flex h-[360px] items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <div className="flex h-90 items-center justify-center gap-2 text-sm text-muted-foreground">
                       <Loader2 size={16} className="animate-spin" />
                       Loading chart…
                     </div>
@@ -270,7 +280,7 @@ const HistoryAnalysis = () => {
             <div className="overflow-hidden rounded-xl border border-border bg-card p-2 shadow-sm">
               <Suspense
                 fallback={
-                  <div className="flex h-[360px] items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <div className="flex h-90 items-center justify-center gap-2 text-sm text-muted-foreground">
                     <Loader2 size={16} className="animate-spin" />
                     Loading chart…
                   </div>

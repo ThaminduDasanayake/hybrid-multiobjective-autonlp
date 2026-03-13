@@ -1,16 +1,36 @@
 /**
  * API client for the T-AutoNLP FastAPI backend.
  *
- * During development, Vite proxies all /api/* requests to http://localhost:8000,
- * so no base URL or CORS headers are needed here.
+ * Base URL strategy
+ * -----------------
+ * In development Vite proxies /api/* → localhost:8000 (see vite.config.js),
+ * so VITE_API_BASE_URL is intentionally left empty in .env and relative paths
+ * work without CORS overhead.
  *
- * NOTE: The SSE /stream endpoint is intentionally NOT wrapped here.
- * Use the browser's native EventSource API directly inside your components:
+ * In production (Vercel) the proxy does not exist.  Set VITE_API_BASE_URL to
+ * your backend's public URL (Ngrok tunnel or cloud VM) in the Vercel dashboard
+ * or in .env.production, and every fetch/EventSource will use it automatically.
  *
- *   const es = new EventSource(`/api/jobs/${jobId}/stream`);
- *   es.onmessage = (e) => { const { status, logs } = JSON.parse(e.data); };
- *   es.onerror   = ()  => es.close();
+ * SSE streams
+ * -----------
+ * Use the exported `streamUrl(jobId)` helper when constructing an EventSource
+ * so the base URL is applied consistently:
+ *
+ *   const es = new EventSource(streamUrl(jobId));
  */
+
+import { BASE_URL } from "@/constants.js";
+
+/**
+ * Returns the full SSE stream URL for a given job.
+ * Use this instead of hardcoding the path in components.
+ *
+ * @param {string} jobId
+ * @returns {string}
+ */
+export function streamUrl(jobId) {
+  return `${BASE_URL}/api/jobs/${jobId}/stream`;
+}
 
 /**
  * Internal helper — sends a fetch request and throws a descriptive Error if
@@ -21,7 +41,7 @@
  * @returns {Promise<any>}
  */
 async function _request(path, options = {}) {
-  const res = await fetch(path, {
+  const res = await fetch(`${BASE_URL}${path}`, {
     headers: { "Content-Type": "application/json", ...options.headers },
     ...options,
   });

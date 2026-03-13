@@ -55,11 +55,15 @@ class APIJobManager(JobManager):
     def create_job(self, config: dict[str, Any]) -> str:
         import json
         import shutil
+        from uuid import uuid4
 
         # Import here to avoid loading it in every module that imports this class.
         from api.worker_fn import run_automl_job
 
-        job_id = datetime.now().strftime("job_%Y%m%d_%H%M%S")
+        # Include an 8-char hex suffix so two requests in the same second cannot
+        # share a directory, clobber each other's config, or delete a live
+        # checkpoint that belongs to the other job.
+        job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
         job_dir = self._get_job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Loader2, RotateCcw, Square, Terminal } from "lucide-react";
-import { cancelJob } from "@/api.js";
+import { cancelJob, streamUrl } from "@/api.js";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Progress } from "../ui/progress";
@@ -35,7 +35,7 @@ const LiveTracker = ({ jobId, onFinished }) => {
 
   // Open the SSE connection.
   useEffect(() => {
-    const es = new EventSource(`/api/jobs/${jobId}/stream`);
+    const es = new EventSource(streamUrl(jobId));
 
     es.onmessage = (e) => {
       const payload = JSON.parse(e.data);
