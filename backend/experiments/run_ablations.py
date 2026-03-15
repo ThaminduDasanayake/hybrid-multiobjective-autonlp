@@ -39,7 +39,7 @@ sys.path.insert(0, str(project_root))
 
 from automl import HybridAutoML
 from automl.search_engine import OPTIMIZATION_MODES
-from experiments.evaluation import ParetoAnalyzer
+from utils.evaluation import ParetoAnalyzer
 from utils import DataLoader, to_python_type
 from utils.logger import get_logger
 

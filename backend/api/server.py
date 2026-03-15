@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from api.job_manager import APIJobManager, _executor
+from api.job_manager import JobManager, _executor
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,7 +57,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_job_manager = APIJobManager()
+_job_manager = JobManager()
 
 
 # ---------------------------------------------------------------------- schemas
@@ -240,7 +240,7 @@ def start_ablation(config: AblationConfig):
     results/ablations/ when finished.  Call GET /api/ablations to check for
     new results.
     """
-    from api.ablation_worker import run_ablation
+    from api.worker import run_ablation
 
     _executor.submit(
         run_ablation,

@@ -45,13 +45,17 @@ class ResultStore:
         return hashlib.md5(json.dumps(config, sort_keys=True).encode()).hexdigest()
 
     def get_cached_evaluation(self, key: str) -> Optional[Dict[str, Any]]:
-        """Retrieve evaluation from cache."""
+        """Retrieve evaluation from cache, incrementing hit/miss counters."""
         result = self.eval_cache.get(key)
         if result is not None:
             self.cache_hit_count += 1
         else:
             self.cache_miss_count += 1
         return result
+
+    def peek(self, key: str) -> Optional[Dict[str, Any]]:
+        """Check cache without affecting hit/miss counters (probe-only)."""
+        return self.eval_cache.get(key)
 
     def cache_evaluation(self, key: str, result: Dict[str, Any]):
         """Store evaluation in cache."""

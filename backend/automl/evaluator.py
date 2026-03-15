@@ -72,6 +72,22 @@ class PipelineEvaluator:
         # Safe-Pairing Logic
         if not self._validate_structure(scaler_type, dim_reduction_type, model_type):
             logger.warning(f"Invalid structure: {individual}. applying penalty.")
+            self.result_store.cache_evaluation(
+                cache_key,
+                {
+                    "scaler": scaler_type,
+                    "dim_reduction": dim_reduction_type,
+                    "vectorizer": vectorizer_type,
+                    "model": model_type,
+                    "ngram_range": ngram_range,
+                    "max_features": max_features,
+                    "params": {},
+                    "f1_score": PENALTY_FITNESS[0],
+                    "latency": PENALTY_FITNESS[1],
+                    "interpretability": PENALTY_FITNESS[2],
+                    "variance": 0.0,
+                },
+            )
             return PENALTY_FITNESS
 
         try:
@@ -148,6 +164,22 @@ class PipelineEvaluator:
 
         except Exception as e:
             logger.error(f"Error evaluating individual {individual}: {e}")
+            self.result_store.cache_evaluation(
+                cache_key,
+                {
+                    "scaler": scaler_type,
+                    "dim_reduction": dim_reduction_type,
+                    "vectorizer": vectorizer_type,
+                    "model": model_type,
+                    "ngram_range": ngram_range,
+                    "max_features": max_features,
+                    "params": {},
+                    "f1_score": ERROR_FITNESS[0],
+                    "latency": ERROR_FITNESS[1],
+                    "interpretability": ERROR_FITNESS[2],
+                    "variance": 0.0,
+                },
+            )
             return ERROR_FITNESS
 
     def _update_objective_ranges(

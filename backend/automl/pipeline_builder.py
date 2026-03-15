@@ -14,15 +14,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.preprocessing import StandardScaler, MaxAbsScaler, RobustScaler
 from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_selection import SelectKBest, f_classif
-from sklearn.linear_model import LogisticRegression, SGDClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.svm import LinearSVC
-from sklearn.ensemble import RandomForestClassifier
-
-try:
-    from lightgbm import LGBMClassifier
-except ImportError:
-    LGBMClassifier = None
 
 
 def build_pipeline(
@@ -46,8 +40,7 @@ def build_pipeline(
         scaler_type: Type of scaler ('standard', 'maxabs', 'robust', or None)
         dim_reduction_type: Dim reduction ('pca', 'select_k_best', or None)
         vectorizer_type: Vectorizer ('tfidf' or 'count')
-        model_type: Classifier ('logistic', 'naive_bayes', 'svm',
-                     'random_forest', 'lightgbm', 'sgd')
+        model_type: Classifier ('logistic', 'naive_bayes', 'svm')
         ngram_range: N-gram range string, e.g. '1-2'
         max_features: Max vocabulary size (int, str of int, or 'None')
         params: Hyperparameters dict (C, alpha, max_iter, etc.)
@@ -124,33 +117,6 @@ def build_pipeline(
             penalty=params.get("penalty", "l2"),
             dual=dual,
             max_iter=params.get("max_iter", 1500),
-            random_state=random_state,
-        )
-    elif model_type == "random_forest":
-        model = RandomForestClassifier(
-            n_estimators=params.get("n_estimators", 100),
-            max_depth=params.get("max_depth", None),
-            min_samples_split=params.get("min_samples_split", 2),
-            random_state=random_state,
-            n_jobs=-1,
-        )
-    elif model_type == "lightgbm":
-        if LGBMClassifier is None:
-            raise ImportError("LightGBM is not installed.")
-        model = LGBMClassifier(
-            n_estimators=params.get("n_estimators", 100),
-            learning_rate=params.get("learning_rate", 0.1),
-            num_leaves=params.get("num_leaves", 31),
-            random_state=random_state,
-            n_jobs=-1,
-            verbose=-1,
-        )
-    elif model_type == "sgd":
-        model = SGDClassifier(
-            loss=params.get("loss", "hinge"),
-            penalty=params.get("penalty", "l2"),
-            alpha=params.get("alpha", 1e-4),
-            max_iter=params.get("max_iter", 2000),
             random_state=random_state,
         )
     else:

@@ -11,7 +11,7 @@ const App = () => {
         <Route path="/" element={<Layout />}>
           <Route index element={<RunAutoML />} />
           <Route path="history" element={<HistoryAnalysis />} />
-          <Route path="defense" element={<ThesisDefense />} />
+          <Route path="ablations" element={<ThesisDefense />} />
         </Route>
       </Routes>
     </BrowserRouter>

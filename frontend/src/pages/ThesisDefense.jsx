@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertCircle,
   BarChart3,
   FlaskConical,
-  GraduationCap,
   Loader2,
   Play,
   RefreshCw,
 } from "lucide-react";
-import { getAblations, getJobResult, getJobs, runAblation } from "../api";
+import { useSearchParams } from "react-router-dom";
+import { useAblations, useJobResult, useJobs, useRunAblation } from "../hooks/useApi";
 import DropdownSelector from "../components/DropdownSelector";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
@@ -83,7 +83,9 @@ function ComparisonTable({ title, subtitle, children }) {
         <h2 className="text-base font-semibold text-foreground">{title}</h2>
         {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
       </div>
-      <div className="overflow-hidden rounded-xl border border-border bg-card">{children}</div>
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="overflow-x-auto">{children}</div>
+      </div>
     </section>
   );
 }
@@ -104,81 +106,59 @@ function RunButton({ label, queued, onClick }) {
 }
 
 const ThesisDefense = () => {
-  // ── job list (drives dataset context, mirroring Streamlit's approach) ─────
-  const [jobMap, setJobMap] = useState({});
-  const [jobsLoading, setJobsLoading] = useState(true);
-  const [jobsError, setJobsError] = useState(null);
-  const [selectedJobId, setSelectedJobId] = useState("");
-  const [masterMetrics, setMasterMetrics] = useState(null); // result.metrics for selected job
-  const [masterRuntime, setMasterRuntime] = useState(null);
-  const [masterConfig, setMasterConfig] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const jobIdFromUrl = searchParams.get("job");
 
-  const [ablations, setAblations] = useState(null);
-  const [ablationsLoading, setAblationsLoading] = useState(false);
-  const [ablationsError, setAblationsError] = useState(null);
-
+  // Tracks which ablation keys have been queued this session. Kept as local
+  // state because one mutation can have multiple concurrent pending keys.
   const [queued, setQueued] = useState({});
 
   // Derived: true while at least one run is still queued
   const isPolling = Object.values(queued).some(Boolean);
 
-  useEffect(() => {
-    getJobs()
-      .then((data) => {
-        const completed = Object.fromEntries(
-          Object.entries(data).filter(([, s]) => s.status === "completed"),
-        );
-        setJobMap(completed);
-        const ids = Object.keys(completed);
-        if (ids.length > 0) setSelectedJobId(ids[0]);
-      })
-      .catch((e) => setJobsError(e.message))
-      .finally(() => setJobsLoading(false));
-  }, []);
+  // ── server data ────────────────────────────────────────────────────────────
+  const {
+    data: jobMap = {},
+    isLoading: jobsLoading,
+    error: jobsError,
+  } = useJobs();
 
-  // ── fetch selected job's result.json to get master metrics ────────────────
-  useEffect(() => {
-    if (!selectedJobId) return;
-    getJobResult(selectedJobId)
-      .then((data) => {
-        setMasterMetrics(data?.metrics ?? null);
-        setMasterRuntime(data?.runtime_seconds ?? null);
-        setMasterConfig(data?.config ?? null);
-      })
-      .catch(() => {
-        setMasterMetrics(null);
-        setMasterRuntime(null);
-        setMasterConfig(null);
-      });
-  }, [selectedJobId]);
+  // Derivation chain: URL → localStorage → newest job
+  const completedIds = Object.keys(jobMap);
+  const lastSaved = localStorage.getItem("t_autonlp_last_ablation_job");
+  const selectedJobId = jobIdFromUrl ?? lastSaved ?? completedIds[0];
 
-  // ── derive dataset from the selected job's config ─────────────────────────
+  useEffect(() => {
+    if (selectedJobId) {
+      localStorage.setItem("t_autonlp_last_ablation_job", selectedJobId);
+      if (jobIdFromUrl !== selectedJobId) {
+        setSearchParams({ job: selectedJobId }, { replace: true });
+      }
+    }
+  }, [selectedJobId, jobIdFromUrl, setSearchParams]);
+
+  const { data: jobResult } = useJobResult(selectedJobId);
+
+  // Ablations: refetchInterval activates React Query's built-in polling while
+  // any ablation is queued, replacing the manual setInterval approach.
+  const {
+    data: ablationsData,
+    isLoading: ablationsLoading,
+    error: ablationsError,
+    refetch: refetchAblations,
+  } = useAblations({ refetchInterval: isPolling ? 10_000 : false });
+
+  const runAblationMutation = useRunAblation();
+
+  // ── derived values ─────────────────────────────────────────────────────────
+  const masterMetrics = jobResult?.metrics ?? null;
+  const masterRuntime = jobResult?.runtime_seconds ?? null;
+  const masterConfig = jobResult?.config ?? null;
+
   const dataset =
     jobMap[selectedJobId]?._config?.dataset_name ?? jobMap[selectedJobId]?.dataset_name ?? "";
 
-  // ── load ablation results (can be re-triggered manually or on poll) ───────
-  const loadAblations = useCallback(() => {
-    setAblationsLoading(true);
-    setAblationsError(null);
-    getAblations()
-      .then(setAblations)
-      .catch((e) => setAblationsError(e.message))
-      .finally(() => setAblationsLoading(false));
-  }, []);
-
-  useEffect(() => {
-    loadAblations();
-  }, [loadAblations]);
-
-  // Auto-poll every 10 s while any ablation run is queued
-  useEffect(() => {
-    if (!isPolling) return;
-    const id = setInterval(loadAblations, 10_000);
-    return () => clearInterval(id);
-  }, [isPolling, loadAblations]);
-
-  // ── lookup ablation data for the selected dataset ─────────────────────────
-  const d = ablations ?? {};
+  const d = ablationsData ?? {};
   const single = d[`single_f1_${dataset}`]?.metrics ?? null;
   const singleRT = d[`single_f1_${dataset}`]?.runtime_seconds ?? null;
   const two = d[`multi_2d_${dataset}`]?.metrics ?? null;
@@ -186,17 +166,15 @@ const ThesisDefense = () => {
   const gaOnly = d[`ga_only_${dataset}`]?.metrics ?? null;
   const gaOnlyRT = d[`ga_only_${dataset}`]?.runtime_seconds ?? null;
 
-  const handleRun = async (mode, disableBo) => {
+  // ── handlers ───────────────────────────────────────────────────────────────
+  const handleRun = (mode, disableBo) => {
     const key = `${disableBo ? "ga_only" : mode}_${dataset}`;
     setQueued((q) => ({ ...q, [key]: true }));
-    try {
-      await runAblation({ mode, disable_bo: disableBo, dataset });
-    } catch {
-      setQueued((q) => ({ ...q, [key]: false }));
-    }
+    runAblationMutation.mutate(
+      { mode, disable_bo: disableBo, dataset },
+      { onError: () => setQueued((q) => ({ ...q, [key]: false })) },
+    );
   };
-
-  const completedIds = Object.keys(jobMap);
 
   return (
     <div className="p-8">
@@ -210,7 +188,12 @@ const ThesisDefense = () => {
           </p>
         </div>
 
-        <Button variant="outline" size="sm" onClick={loadAblations} disabled={ablationsLoading}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetchAblations()}
+          disabled={ablationsLoading}
+        >
           <RefreshCw size={12} className={ablationsLoading || isPolling ? "animate-spin" : ""} />
           {isPolling ? "Polling…" : "Refresh"}
         </Button>
@@ -226,7 +209,7 @@ const ThesisDefense = () => {
         ) : jobsError ? (
           <Alert variant="destructive">
             <AlertCircle />
-            <AlertDescription>{jobsError}</AlertDescription>
+            <AlertDescription>{jobsError.message}</AlertDescription>
           </Alert>
         ) : completedIds.length === 0 ? (
           <div className="rounded-xl border-2 border-dashed border-border bg-card p-12 text-center">
@@ -248,7 +231,7 @@ const ThesisDefense = () => {
               label: `${id} — ${fmt.date(jobMap[id]?.start_time)}`,
             }))}
             value={selectedJobId}
-            onChange={setSelectedJobId}
+            onChange={(newId) => setSearchParams({ job: newId })}
           />
         )}
       </div>
@@ -265,7 +248,7 @@ const ThesisDefense = () => {
           {ablationsError && (
             <Alert variant="destructive">
               <AlertCircle />
-              <AlertDescription>{ablationsError}</AlertDescription>
+              <AlertDescription>{ablationsError.message}</AlertDescription>
             </Alert>
           )}
 

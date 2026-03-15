@@ -1,3 +1,4 @@
+import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
 const DropdownSelector = ({ label, options = [], value, onChange, className }) => {
@@ -5,7 +6,7 @@ const DropdownSelector = ({ label, options = [], value, onChange, className }) =
 
   return (
     <div className={className ?? "relative max-w-md"}>
-      {label && <label className="mb-1.5 block text-sm font-medium text-foreground">{label}</label>}
+      {label && <Label className="mb-1.5 block">{label}</Label>}
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger className="w-full">
           <SelectValue />

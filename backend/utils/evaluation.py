@@ -3,6 +3,8 @@ from typing import List, Dict, Any
 
 from pymoo.indicators.hv import HV
 
+from automl.pareto import is_dominated, get_pareto_front
+
 
 class ParetoAnalyzer:
     """
@@ -13,6 +15,9 @@ class ParetoAnalyzer:
     - Non-dominated solution identification
     - Knee-point computation
     - Metric aggregation
+
+    Dominance primitives (is_dominated, get_pareto_front) live in
+    automl/pareto.py so the core engine has no dependency on this module.
     """
 
     @staticmethod
@@ -22,44 +27,7 @@ class ParetoAnalyzer:
         objectives: List[str] = ["f1_score", "latency", "interpretability"],
         maximize: List[bool] = [True, False, True],
     ) -> bool:
-        """
-        Check if solution_a is dominated by solution_b.
-
-        Solution A is dominated by B if B is at least as good in all objectives
-        and strictly better in at least one.
-
-        Args:
-            solution_a: First solution
-            solution_b: Second solution
-            objectives: List of objective names
-            maximize: Whether each objective should be maximized
-
-        Returns:
-            True if solution_a is dominated by solution_b
-        """
-        better_or_equal = True
-        strictly_better = False
-
-        for obj, is_max in zip(objectives, maximize):
-            val_a = solution_a[obj]
-            val_b = solution_b[obj]
-
-            if is_max:
-                # For maximization objectives
-                if val_b < val_a:
-                    better_or_equal = False
-                    break
-                if val_b > val_a:
-                    strictly_better = True
-            else:
-                # For minimization objectives
-                if val_b > val_a:
-                    better_or_equal = False
-                    break
-                if val_b < val_a:
-                    strictly_better = True
-
-        return better_or_equal and strictly_better
+        return is_dominated(solution_a, solution_b, objectives, maximize)
 
     @staticmethod
     def get_pareto_front(
@@ -67,32 +35,7 @@ class ParetoAnalyzer:
         objectives: List[str] = ["f1_score", "latency", "interpretability"],
         maximize: List[bool] = [True, False, True],
     ) -> List[Dict[str, Any]]:
-        """
-        Extract the Pareto front from a set of solutions.
-
-        Args:
-            solutions: List of solution dictionaries
-            objectives: List of objective names
-            maximize: Whether each objective should be maximized
-
-        Returns:
-            List of non-dominated solutions
-        """
-        pareto_front = []
-
-        for i, sol_a in enumerate(solutions):
-            is_dominated_by_any = False
-
-            for j, sol_b in enumerate(solutions):
-                if i != j:
-                    if ParetoAnalyzer.is_dominated(sol_a, sol_b, objectives, maximize):
-                        is_dominated_by_any = True
-                        break
-
-            if not is_dominated_by_any:
-                pareto_front.append(sol_a)
-
-        return pareto_front
+        return get_pareto_front(solutions, objectives, maximize)
 
     @staticmethod
     def compute_knee_point(

@@ -1,6 +1,6 @@
 import { useStore } from "../store";
-import ConfigForm from "../components/run/ConfigForm";
-import LiveTracker from "../components/run/LiveTracker";
+import ConfigForm from "../components/ConfigForm.jsx";
+import LiveTracker from "../components/LiveTracker.jsx";
 
 const RunAutoML = () => {
   const { activeJobId, setActiveJobId, resetJob } = useStore();
