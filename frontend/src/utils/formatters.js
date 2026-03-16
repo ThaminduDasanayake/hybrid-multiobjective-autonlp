@@ -9,8 +9,6 @@ export const MODEL_LABELS = {
   logistic: "Logistic Regression",
   naive_bayes: "Naive Bayes",
   svm: "SVM",
-  lightgbm: "LightGBM",
-  sgd: "SGD Classifier",
 };
 
 export const VECTORIZER_LABELS = {
@@ -21,8 +19,6 @@ export const VECTORIZER_LABELS = {
 export const SCALER_LABELS = {
   maxabs: "MaxAbs",
   robust: "Robust",
-  standard: "Standard",
-  minmax: "MinMax",
 };
 
 export const DIM_LABELS = {

@@ -1,14 +1,12 @@
 import time
-import json
-import random
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any
 from utils.logger import get_logger
 from .bayesian_optimization import BayesianOptimizer
 from .persistence import ResultStore
 from .evaluator import PipelineEvaluator
 from .search_engine import EvolutionarySearch
-from experiments.evaluation import ParetoAnalyzer
+from .pareto import get_pareto_front
 
 logger = get_logger("automl")
 
@@ -75,9 +73,10 @@ class HybridAutoML:
         # Prepare results
         all_solutions = list(self.result_store.eval_cache.values())
 
-        # Use ParetoAnalyzer to get the true global Pareto front from all evaluated solutions
-        # This ensures consistency with the UI metrics and catches any solutions missed by HOF
-        pareto_solutions = ParetoAnalyzer.get_pareto_front(all_solutions)
+        # Recompute the global Pareto front from all evaluated solutions.
+        # Exclude penalty/invalid entries so dominance analysis only covers valid results.
+        valid_solutions = [s for s in all_solutions if s.get("status") == "success"]
+        pareto_solutions = get_pareto_front(valid_solutions)
 
         # Calculate Search Summary & Learning Curve
         # Retrieve penalty history directly from the search engine (Clean Separation)

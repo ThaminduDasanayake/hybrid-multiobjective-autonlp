@@ -1,25 +1,17 @@
 import time
 from typing import Dict, Any, Optional
+
 import numpy as np
-from sklearn.pipeline import Pipeline
-from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
-from sklearn.preprocessing import MaxAbsScaler, RobustScaler
-from sklearn.decomposition import TruncatedSVD
-from sklearn.feature_selection import SelectKBest, f_classif
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_validate
 from skopt import gp_minimize
 from skopt.space import Real, Integer, Categorical
 from skopt.utils import use_named_args
 
-from .pipeline_builder import build_pipeline
 from utils.logger import get_logger
+from .pipeline_builder import build_pipeline
 
 logger = get_logger("bayesian_optimization")
 
-try:
-    from lightgbm import LGBMClassifier
-except ImportError:
-    LGBMClassifier = None
 
 
 class BayesianOptimizer:
@@ -52,9 +44,6 @@ class BayesianOptimizer:
         self.random_state = random_state
         self.disable_bo = disable_bo
         self._rng = np.random.RandomState(random_state)
-
-        # Set numpy random seed
-        np.random.seed(random_state)
 
     @staticmethod
     def dataset_profile(X) -> str:
@@ -94,6 +83,8 @@ class BayesianOptimizer:
             dim_reduction_type: Type of dim reduction ('pca', 'select_k_best', None)
             vectorizer_type: Type of vectorizer ('tfidf' or 'count')
             model_type: Type of model ('logistic', 'naive_bayes', 'svm', 'random_forest')
+            ngram_range: Vectorizer n-gram range tuple, e.g. '(1,2)'
+            max_features: Maximum vocabulary size (int or None)
             X_train: Training texts
             y_train: Training labels
 
@@ -113,7 +104,6 @@ class BayesianOptimizer:
         # Define search space based on pipeline configuration
         n_samples = len(X_train)
         space = self._get_search_space(
-            scaler_type,
             dim_reduction_type,
             vectorizer_type,
             model_type,
@@ -145,7 +135,6 @@ class BayesianOptimizer:
         def objective(**params):
             # Objective function for BO
             try:
-                # Build pipeline
                 pipeline = build_pipeline(
                     scaler_type,
                     dim_reduction_type,
@@ -157,8 +146,9 @@ class BayesianOptimizer:
                     random_state=self.random_state,
                 )
 
-                # Cross-validation score first (fail-fast: avoids wasted fit if CV fails)
-                cv_scores = cross_val_score(
+                # cross_validate with return_estimator=True gives us the last
+                # fold's fitted model for inference timing — no redundant full fit.
+                cv_result = cross_validate(
                     pipeline,
                     X_train,
                     y_train,
@@ -166,26 +156,26 @@ class BayesianOptimizer:
                     scoring="f1_weighted",
                     n_jobs=-1,
                     error_score=0.0,
+                    return_estimator=True,
                 )
-                score = cv_scores.mean()
+                score = cv_result["test_score"].mean()
                 scores.append(score)
 
-                # Measure inference time (requires a full fit on all training data)
-                pipeline.fit(X_train, y_train)
+                # Reuse the last fold's estimator; let the others be GC'd.
+                fitted = cv_result["estimator"][-1]
+                n_test = min(100, len(X_train))
                 inference_start = time.time()
-                _ = pipeline.predict(X_train[:100])  # Sample for speed
-                inference_time = (time.time() - inference_start) / 100
+                _ = fitted.predict(X_train[:n_test])
+                inference_time = (time.time() - inference_start) / n_test
                 inference_times.append(inference_time)
 
                 # BO minimizes, so negate the score
-                # Handle NaN if it slips through
                 if np.isnan(score):
                     return 0.0
 
                 return -score
 
-            except Exception as e:
-                # logger.debug(f"Error in BO iteration: {e}")
+            except Exception:
                 return 0.0  # Return poor score on failure
 
         # Run Bayesian Optimization
@@ -249,7 +239,6 @@ class BayesianOptimizer:
         random_params = {}
         for dim in space:
             random_params[dim.name] = dim.rvs(random_state=self._rng)[0]
-            # random_params[dim.name] = dim.rvs(random_state=self.random_state)[0]
 
         profile = self.dataset_profile(X_train)
         score = 0.0
@@ -268,7 +257,9 @@ class BayesianOptimizer:
                 random_state=self.random_state,
             )
 
-            cv_scores = cross_val_score(
+            # cross_validate with return_estimator=True — reuse last fold,
+            # no redundant full fit needed for inference timing.
+            cv_result = cross_validate(
                 pipeline,
                 X_train,
                 y_train,
@@ -276,18 +267,20 @@ class BayesianOptimizer:
                 scoring="f1_weighted",
                 n_jobs=-1,
                 error_score=0.0,
+                return_estimator=True,
             )
-            score = cv_scores.mean()
-            variance = np.var(cv_scores)
+            score = cv_result["test_score"].mean()
+            variance = np.var(cv_result["test_score"])
 
             if np.isnan(score):
                 score = 0.0
 
-            # Measure inference time
-            pipeline.fit(X_train, y_train)
+            # Reuse the last fold's estimator; let the others be GC'd.
+            fitted = cv_result["estimator"][-1]
+            n_test = min(100, len(X_train))
             inf_start = time.time()
-            _ = pipeline.predict(X_train[:100])
-            inference_time = (time.time() - inf_start) / 100
+            _ = fitted.predict(X_train[:n_test])
+            inference_time = (time.time() - inf_start) / n_test
 
         except Exception as e:
             logger.warning(
@@ -306,9 +299,8 @@ class BayesianOptimizer:
             "optimization_time": optimization_time,
         }
 
+    @staticmethod
     def _get_search_space(
-        self,
-        scaler_type: str,
         dim_reduction_type: str,
         vectorizer_type: str,
         model_type: str,
@@ -320,35 +312,29 @@ class BayesianOptimizer:
         Define the hyperparameter search space.
 
         Args:
-            scaler_type: Type of scaler
             dim_reduction_type: Type of dimensionality reduction
             vectorizer_type: Type of vectorizer
             model_type: Type of model
             profile: Dataset profile ('small', 'medium', 'large')
+            max_features_val: Maximum vocabulary size (int or None)
+            n_samples: Number of training samples
 
         Returns:
             List of skopt Space objects
         """
         space = []
 
-        # Dataset-aware limits
-        # max_iter is also scaled: small datasets converge in far fewer iterations,
+        # max_iter is scaled to dataset size: small datasets converge faster,
         # so capping it avoids wasting BO budget on non-converging configs.
         if profile == "small":
-            max_features_upper = 5000
-            max_ngram = 2
             max_iter_logistic = 1000
             max_iter_svm = 1500
         elif profile == "medium":
-            max_features_upper = 10000
-            max_ngram = 3
             max_iter_logistic = 2000
             max_iter_svm = 3000
         else:  # large
             max_iter_logistic = 3000
             max_iter_svm = 5000
-            max_features_upper = 15000
-            max_ngram = 3
 
         # Dim Reduction hyperparameters
         if dim_reduction_type == "pca":
@@ -400,32 +386,6 @@ class BayesianOptimizer:
                     Real(0.01, 10.0, prior="log-uniform", name="C"),
                     Categorical(["l1", "l2"], name="penalty"),
                     Integer(500, max_iter_svm, name="max_iter"),
-                ]
-            )
-        elif model_type == "random_forest":
-            # Limit estimators for small datasets
-            max_estimators = 100 if profile == "small" else 200
-            space.extend(
-                [
-                    Integer(10, max_estimators, name="n_estimators"),
-                    Integer(2, 20, name="max_depth"),
-                    Integer(2, 10, name="min_samples_split"),
-                ]
-            )
-        elif model_type == "lightgbm":
-            space.extend(
-                [
-                    Integer(10, 100, name="n_estimators"),
-                    Real(0.01, 0.3, name="learning_rate"),
-                    Integer(2, 30, name="num_leaves"),
-                ]
-            )
-        elif model_type == "sgd":
-            space.extend(
-                [
-                    Categorical(["hinge", "log_loss", "modified_huber"], name="loss"),
-                    Categorical(["l2", "l1", "elasticnet"], name="penalty"),
-                    Real(1e-5, 1e-2, prior="log-uniform", name="alpha"),
                 ]
             )
 

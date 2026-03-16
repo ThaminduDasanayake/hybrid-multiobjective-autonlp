@@ -1,88 +1,143 @@
 """
-FastAPI-specific job manager.
+Job manager for the FastAPI backend.
 
-Replaces subprocess.Popen from utils/job_manager.py with
-concurrent.futures.ProcessPoolExecutor, which is cross-platform and does not
-require OS-specific signal groups or start_new_session flags.
+Runs AutoML jobs in a ProcessPoolExecutor so they never block the async
+event loop.  All job state lives on disk (file-based IPC) so the server
+can be restarted without losing in-progress job metadata.
 
-IPC strategy — unchanged from the Streamlit era:
-  - Worker writes progress to jobs/{job_id}/status.json on every callback.
-  - FastAPI routes read that file on demand (polling from the React client).
-  - Worker writes final results to jobs/{job_id}/result.json on completion.
+IPC:
+  - Worker writes progress to  jobs/{job_id}/status.json  on every callback.
+  - FastAPI routes read that file on demand (SSE polling from the React client).
+  - Worker writes final results to  jobs/{job_id}/result.json  on completion.
 
-Cancellation strategy:
-  1. Write stop.signal file  → cooperative shutdown inside progress_callback.
-  2. future.cancel()         → cancels queued-but-not-started jobs immediately.
-  3. os.kill(pid, SIGTERM/SIGKILL) → force-kills an already-running worker via
-     the PID the worker writes to status.json on startup.
+Cancellation (2-tier, cooperative):
+  1. Write stop.signal file  → progress_callback raises _TerminationRequested.
+  2. future.cancel()         → cancels queued-but-not-yet-started jobs.
 """
 
+import json
 import os
-import signal
 import time
 from concurrent.futures import Future, ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-from utils.job_manager import JobManager
 from utils.logger import get_logger
 
-logger = get_logger("api_job_manager")
+logger = get_logger("job_manager")
 
-# Module-level singletons — one executor shared across all HTTP requests.
+# One executor shared across all HTTP requests.
 # max_workers=2: enough to run one job while a second waits in the queue.
-# AutoML is extremely CPU-heavy, so more workers would just thrash the CPU.
+# AutoML is extremely CPU-heavy — more workers would thrash the CPU.
 _executor = ProcessPoolExecutor(max_workers=2)
 _futures: dict[str, Future] = {}
 
 # Absolute path to the backend root — passed to worker processes so they can
-# reconstruct sys.path in 'spawn' mode (the macOS default since Python 3.12).
+# reconstruct sys.path under the 'spawn' start method (macOS default, Python 3.12+).
 _BACKEND_ROOT = str(Path(__file__).parent.parent.resolve())
 
 
-class APIJobManager(JobManager):
-    """
-    Job manager for the FastAPI backend.
+class JobManager:
+    """Manages background AutoML jobs using file-based state and a ProcessPoolExecutor."""
 
-    Inherits all file-management helpers (get_status, update_status,
-    get_result, list_jobs, _get_job_dir) from utils.JobManager and overrides
-    only the process-management methods.
-    """
+    def __init__(self, jobs_dir: str = "jobs") -> None:
+        self.jobs_dir = Path(jobs_dir)
+        self.jobs_dir.mkdir(parents=True, exist_ok=True)
 
-    # ----------------------------------------------------------------- create
+    # ------------------------------------------------------------------ helpers
+
+    def _get_job_dir(self, job_id: str) -> Path:
+        return self.jobs_dir / job_id
+
+    # ------------------------------------------------------------------ file I/O
+
+    def get_status(self, job_id: str) -> dict[str, Any] | None:
+        """Read jobs/{job_id}/status.json. Returns None if missing or unreadable."""
+        status_path = self._get_job_dir(job_id) / "status.json"
+        if not status_path.exists():
+            return None
+        try:
+            with open(status_path) as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error reading status for {job_id}: {e}")
+            return None
+
+    def update_status(self, job_id: str, status: dict[str, Any]) -> None:
+        """Atomically write status to jobs/{job_id}/status.json.
+
+        Uses a temp file + os.replace() so a concurrent reader never sees a
+        partial write.
+        """
+        import tempfile
+
+        status_path = self._get_job_dir(job_id) / "status.json"
+        status["last_updated"] = time.time()
+        try:
+            fd, tmp_path = tempfile.mkstemp(dir=status_path.parent, suffix=".tmp")
+            with os.fdopen(fd, "w") as f:
+                json.dump(status, f, indent=2)
+            os.replace(tmp_path, status_path)
+        except Exception as e:
+            logger.exception(f"Error updating status for {job_id}: {e}")
+            if "tmp_path" in locals() and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+    def get_result(self, job_id: str) -> dict[str, Any] | None:
+        """Read jobs/{job_id}/result.json. Returns None if missing or unreadable."""
+        result_path = self._get_job_dir(job_id) / "result.json"
+        if not result_path.exists():
+            return None
+        try:
+            with open(result_path) as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error reading result for {job_id}: {e}")
+            return None
+
+    def list_jobs(self) -> dict[str, dict[str, Any]]:
+        """List all job directories, sorted by start_time descending."""
+        if not self.jobs_dir.exists():
+            return {}
+        jobs = {}
+        for job_dir in self.jobs_dir.iterdir():
+            if job_dir.is_dir():
+                status = self.get_status(job_dir.name)
+                if status:
+                    jobs[job_dir.name] = status
+        return dict(
+            sorted(jobs.items(), key=lambda x: x[1].get("start_time", 0), reverse=True)
+        )
+
+    # ------------------------------------------------------------------ process management
 
     def create_job(self, config: dict[str, Any]) -> str:
-        import json
+        """Create a new AutoML job, write its config, and submit it to the executor."""
         import shutil
-        from uuid import uuid4
 
-        # Import here to avoid loading it in every module that imports this class.
-        from api.worker_fn import run_automl_job
+        from api.worker import run_automl_job
 
-        # Include an 8-char hex suffix so two requests in the same second cannot
-        # share a directory, clobber each other's config, or delete a live
-        # checkpoint that belongs to the other job.
         job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
         job_dir = self._get_job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
 
-        # Wipe any stale checkpoint from a previous run with the same job_id.
-        # Without this, ResultStore.load_checkpoint() would silently reuse old
-        # cached evaluations, causing the GA to finish in milliseconds and
-        # leaving objective_ranges at their float("inf") sentinel values.
+        # Clear any stale checkpoint so ResultStore.load_checkpoint() starts fresh.
+        # Without this, a reused job_id would silently replay cached evaluations,
+        # causing the GA to finish in milliseconds with sentinel objective_ranges.
         checkpoint_dir = job_dir / "checkpoints"
         if checkpoint_dir.exists():
             shutil.rmtree(checkpoint_dir)
             logger.info(f"Cleared stale checkpoint directory for {job_id}")
         checkpoint_dir.mkdir(parents=True)
 
-        config_path = job_dir / "config.json"
-        with open(config_path, "w") as f:
+        with open(job_dir / "config.json", "w") as f:
             json.dump(config, f, indent=2)
 
-        # Status file initialised here; the worker will overwrite it with its
-        # PID and set status → "running" as soon as it starts.
         status = {
             "job_id": job_id,
             "status": "created",
@@ -105,39 +160,28 @@ class APIJobManager(JobManager):
         logger.info(f"Submitted job {job_id} to ProcessPoolExecutor")
         return job_id
 
-    # --------------------------------------------------------------- terminate
-
     def terminate_job(self, job_id: str) -> bool:
-        # 1. Cooperative stop: worker checks this file in its progress callback.
+        """Stop a job cooperatively, or cancel it if still queued.
+
+        1. Write stop.signal  → worker's progress_callback detects it and exits cleanly.
+        2. future.cancel()    → cancels the job if it hasn't started yet.
+
+        Returns True if the job was found and marked terminated.
+        """
         stop_file = self._get_job_dir(job_id) / "stop.signal"
         try:
             stop_file.touch()
         except Exception as e:
             logger.warning(f"Could not write stop.signal for {job_id}: {e}")
 
-        # 2. Cancel if the job hasn't started yet (still sitting in the queue).
         future = _futures.get(job_id)
         if future:
             future.cancel()
 
-        # 3. Force-kill the worker process via the PID it wrote to status.json.
         status = self.get_status(job_id)
         if not status:
             logger.error(f"No status found for job {job_id}")
             return False
-
-        pid = status.get("pid")
-        if pid:
-            for sig in (signal.SIGTERM, signal.SIGKILL):
-                try:
-                    os.kill(pid, sig)
-                    logger.info(f"Sent {sig.name} to PID {pid} (job {job_id})")
-                except ProcessLookupError:
-                    break  # Process already gone — that's fine.
-                except Exception as e:
-                    logger.warning(f"Could not send {sig.name} to PID {pid}: {e}")
-                if sig == signal.SIGTERM:
-                    time.sleep(2)  # Give the process a moment to exit cleanly.
 
         status["status"] = "terminated"
         status["message"] = "Job was manually terminated"
@@ -145,10 +189,12 @@ class APIJobManager(JobManager):
         logger.info(f"Job {job_id} marked as terminated")
         return True
 
-    # ----------------------------------------------------------------- resume
-
     def resume_job(self, job_id: str) -> bool:
-        from api.worker_fn import run_automl_job
+        """Resume a stopped or failed job from its checkpoint.
+
+        Returns False if the config is missing or the job is already running.
+        """
+        from api.worker import run_automl_job
 
         job_dir = self._get_job_dir(job_id)
         if not (job_dir / "config.json").exists():
@@ -163,7 +209,6 @@ class APIJobManager(JobManager):
             logger.warning(f"Job {job_id} is already running; ignoring resume")
             return False
 
-        # Clear any leftover stop signal from the previous run.
         stop_file = job_dir / "stop.signal"
         if stop_file.exists():
             stop_file.unlink()
@@ -182,16 +227,12 @@ class APIJobManager(JobManager):
         logger.info(f"Resumed job {job_id}")
         return True
 
-    # ------------------------------------------------------------------- logs
-
     def get_logs(self, job_id: str, lines: int = 100) -> list[str]:
         """Return the last *lines* lines from the job's rotating log file."""
         import glob as _glob
 
         log_dir = Path(_BACKEND_ROOT) / "logs"
-        # RotatingFileHandler creates e.g. run_job_xxx.log, run_job_xxx.log.1 …
-        pattern = str(log_dir / f"run_{job_id}.log")
-        matches = sorted(_glob.glob(pattern))
+        matches = sorted(_glob.glob(str(log_dir / f"run_{job_id}.log")))
         if not matches:
             return []
         try:

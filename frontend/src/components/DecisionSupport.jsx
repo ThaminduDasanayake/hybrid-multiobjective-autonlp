@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Star, TrendingUp, Zap, Lightbulb } from "lucide-react";
 import { Card, CardContent } from "./ui/card";
+import { Button } from "./ui/button";
 import { computeKnee } from "../utils/knee";
 
 const pick = (arr, key, dir) =>
@@ -22,10 +23,13 @@ const HyperparametersToggle = ({ params }) => {
 
   return (
     <div className="mt-4 flex flex-col pt-3 border-t border-border">
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="sm"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        aria-expanded={expanded}
+        className="w-full justify-between px-2 text-xs font-medium text-foreground"
       >
         View Hyperparameters
         {expanded ? (
@@ -33,7 +37,7 @@ const HyperparametersToggle = ({ params }) => {
         ) : (
           <ChevronRight size={14} className="text-muted-foreground" />
         )}
-      </button>
+      </Button>
       {expanded && (
         <div className="mt-2 rounded-md bg-muted/40 p-3 border border-border/40">
           <pre className="text-[10px] leading-relaxed text-muted-foreground overflow-x-auto">

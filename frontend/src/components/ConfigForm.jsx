@@ -1,19 +1,18 @@
 import { useState } from "react";
 import { AlertCircle, Loader2, Zap } from "lucide-react";
-import { startJob } from "@/api.js";
+import { useStartJob } from "@/hooks/useApi.js";
 import { Alert, AlertDescription } from "@/components/ui/alert.jsx";
 import { DATASETS, DEFAULTS, DEMO_CONFIG } from "@/constants.js";
 import { Button } from "@/components/ui/button.jsx";
+import { Card, CardContent } from "@/components/ui/card.jsx";
 import { Label } from "@/components/ui/label.jsx";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
-import SliderField from "./SliderField";
-
-import React from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select.jsx";
+import SliderField from "./SliderField.jsx";
 
 const ConfigForm = ({ onJobStarted }) => {
   const [config, setConfig] = useState(DEFAULTS);
-  const [error, setError] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
+
+  const startJobMutation = useStartJob();
 
   // For Select components (receives the value string directly).
   const set = (key) => (val) => setConfig((prev) => ({ ...prev, [key]: val }));
@@ -21,17 +20,11 @@ const ConfigForm = ({ onJobStarted }) => {
   // For SliderField (receives the new number value directly).
   const setNum = (key) => (val) => setConfig((prev) => ({ ...prev, [key]: val }));
 
-  const submit = async (cfg) => {
-    setError(null);
-    setSubmitting(true);
-    try {
-      const { job_id } = await startJob(cfg);
-      onJobStarted(job_id);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
+  const submit = (config) => {
+    if (startJobMutation.isPending) return;
+    startJobMutation.mutate(config, {
+      onSuccess: ({ job_id }) => onJobStarted(job_id),
+    });
   };
 
   return (
@@ -69,63 +62,65 @@ const ConfigForm = ({ onJobStarted }) => {
           </p>
         </div>
 
-        <div className="space-y-5 rounded-xl border border-border bg-card p-5">
-          <SliderField
-            label="Training Samples"
-            hint="How many documents are used to train and evaluate each pipeline."
-            value={config.max_samples}
-            min={100}
-            max={5000}
-            step={100}
-            onChange={setNum("max_samples")}
-          />
-          <SliderField
-            label="Population Size"
-            hint="Number of pipeline candidates per GA generation."
-            value={config.population_size}
-            min={5}
-            max={100}
-            step={5}
-            onChange={setNum("population_size")}
-          />
-          <SliderField
-            label="Generations"
-            hint="How many evolutionary cycles to run."
-            value={config.n_generations}
-            min={1}
-            max={50}
-            step={1}
-            onChange={setNum("n_generations")}
-          />
-          <SliderField
-            label="BO Calls"
-            hint="Bayesian optimisation evaluations per top candidate. Set 0 to disable BO."
-            value={config.bo_calls}
-            min={0}
-            max={50}
-            step={5}
-            onChange={setNum("bo_calls")}
-          />
-        </div>
+        <Card>
+          <CardContent className="p-5 space-y-5">
+            <SliderField
+              label="Training Samples"
+              hint="How many documents are used to train and evaluate each pipeline."
+              value={config.max_samples}
+              min={100}
+              max={5000}
+              step={100}
+              onChange={setNum("max_samples")}
+            />
+            <SliderField
+              label="Population Size"
+              hint="Number of pipeline candidates per GA generation."
+              value={config.population_size}
+              min={5}
+              max={100}
+              step={5}
+              onChange={setNum("population_size")}
+            />
+            <SliderField
+              label="Generations"
+              hint="How many evolutionary cycles to run."
+              value={config.n_generations}
+              min={1}
+              max={50}
+              step={1}
+              onChange={setNum("n_generations")}
+            />
+            <SliderField
+              label="BO Calls"
+              hint="Bayesian optimisation evaluations per top candidate. Set 0 to disable BO."
+              value={config.bo_calls}
+              min={0}
+              max={50}
+              step={5}
+              onChange={setNum("bo_calls")}
+            />
+          </CardContent>
+        </Card>
 
-        {error && (
+        {startJobMutation.error && (
           <Alert variant="destructive">
             <AlertCircle />
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>{startJobMutation.error.message}</AlertDescription>
           </Alert>
         )}
 
         <div className="flex gap-3 pt-1">
-          <Button type="submit" disabled={submitting} size="lg" className="grow">
-            {submitting ? <Loader2 className="animate-spin" /> : <Zap />}
-            {submitting ? "Starting…" : "Run AutoML"}
+          <Button type="submit" disabled={startJobMutation.isPending} size="lg" className="grow">
+            {startJobMutation.isPending ? <Loader2 className="animate-spin" /> : <Zap />}
+            {startJobMutation.isPending ? "Starting…" : "Run AutoML"}
           </Button>
 
           <Button
             type="button"
-            variant="seondary"
+            variant="secondary"
             size="lg"
-            disabled={submitting}
+            disabled={startJobMutation.isPending}
             onClick={() => submit(DEMO_CONFIG)}
           >
             Quick Demo

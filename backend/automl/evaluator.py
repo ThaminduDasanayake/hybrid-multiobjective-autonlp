@@ -1,10 +1,13 @@
-from typing import Dict, Any, Tuple
-import numpy as np
 import time
+from typing import Any, Dict, Tuple
+
+import numpy as np
+
 from utils.logger import get_logger
+
 from .bayesian_optimization import BayesianOptimizer
-from .persistence import ResultStore
 from .interpretability import interpretability_score
+from .persistence import ResultStore
 
 logger = get_logger("evaluator")
 
@@ -56,9 +59,9 @@ class PipelineEvaluator:
         """
         cache_key = self.result_store.get_individual_key(individual)
 
-        # Check cache
+        # Check cache — only reuse valid or deterministic (penalty) results
         cached = self.result_store.get_cached_evaluation(cache_key)
-        if cached:
+        if cached and cached.get("status") != "error":
             return cached["f1_score"], cached["latency"], cached["interpretability"]
 
         # Unpack 6 genes
@@ -72,6 +75,23 @@ class PipelineEvaluator:
         # Safe-Pairing Logic
         if not self._validate_structure(scaler_type, dim_reduction_type, model_type):
             logger.warning(f"Invalid structure: {individual}. applying penalty.")
+            self.result_store.cache_evaluation(
+                cache_key,
+                {
+                    "status": "invalid_structure",
+                    "scaler": scaler_type,
+                    "dim_reduction": dim_reduction_type,
+                    "vectorizer": vectorizer_type,
+                    "model": model_type,
+                    "ngram_range": ngram_range,
+                    "max_features": max_features,
+                    "params": {},
+                    "f1_score": PENALTY_FITNESS[0],
+                    "latency": PENALTY_FITNESS[1],
+                    "interpretability": PENALTY_FITNESS[2],
+                    "variance": 0.0,
+                },
+            )
             return PENALTY_FITNESS
 
         try:
@@ -97,7 +117,7 @@ class PipelineEvaluator:
             latency = bo_result["inference_time"]
 
             # Compute interpretability via shared scoring function
-            interp = interpretability_score(
+            interpretability = interpretability_score(
                 scaler_type,
                 dim_reduction_type,
                 vectorizer_type,
@@ -108,10 +128,11 @@ class PipelineEvaluator:
             )
 
             # Update observed objective ranges (for reporting only)
-            self._update_objective_ranges(f1_score, latency, interp)
+            self._update_objective_ranges(f1_score, latency, interpretability)
 
             # Store result
             result = {
+                "status": "success",
                 "scaler": scaler_type,
                 "dim_reduction": dim_reduction_type,
                 "vectorizer": vectorizer_type,
@@ -121,7 +142,7 @@ class PipelineEvaluator:
                 "params": bo_result["best_params"],
                 "f1_score": f1_score,
                 "latency": latency,
-                "interpretability": interp,
+                "interpretability": interpretability,
                 "variance": bo_result["variance"],
             }
             self.result_store.cache_evaluation(cache_key, result)
@@ -129,6 +150,7 @@ class PipelineEvaluator:
             # Add to history
             self.result_store.add_to_history(
                 {
+                    "status": "success",
                     "scaler": scaler_type,
                     "dim_reduction": dim_reduction_type,
                     "vectorizer": vectorizer_type,
@@ -137,17 +159,19 @@ class PipelineEvaluator:
                     "max_features": max_features,
                     "f1_score": f1_score,
                     "latency": latency,
-                    "interpretability": interp,
+                    "interpretability": interpretability,
                     "timestamp": time.time(),
                 },
                 generation=generation,
             )
 
             # Return raw values — DEAP handles direction via weights (1.0, -1.0, 1.0)
-            return f1_score, latency, interp
+            return f1_score, latency, interpretability
 
         except Exception as e:
             logger.error(f"Error evaluating individual {individual}: {e}")
+            # Don't cache transient runtime failures as final results.
+            # Return sentinel for current generation; allow future retry.
             return ERROR_FITNESS
 
     def _update_objective_ranges(

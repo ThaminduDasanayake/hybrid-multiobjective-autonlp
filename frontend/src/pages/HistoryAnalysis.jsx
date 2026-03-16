@@ -1,16 +1,6 @@
-import { lazy, Suspense, useEffect, useState } from "react";
-import {
-  AlertCircle,
-  BarChart3,
-  Box,
-  Clock,
-  Layers,
-  Loader2,
-  Star,
-  TrendingUp,
-  Zap,
-} from "lucide-react";
-import { getJobResult, getJobs } from "../api";
+import { lazy, Suspense, useEffect } from "react";
+import { AlertCircle, BarChart3, Box, Clock, Layers, Loader2, Star } from "lucide-react";
+import { useJobResult, useJobs } from "../hooks/useApi";
 import DecisionSupport from "../components/DecisionSupport";
 import DropdownSelector from "../components/DropdownSelector";
 import JobConfigCard from "../components/JobConfigCard";
@@ -18,6 +8,7 @@ import SolutionsTable from "../components/SolutionsTable";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { fmt } from "../utils/formatters";
 import MetricCard from "@/components/MetricCard.jsx";
+import { useSearchParams } from "react-router-dom";
 
 // Lazy-load Plotly chart components so plotly.js (~3 MB) is only fetched when
 // the user navigates to this page — not included in the initial app bundle.
@@ -26,50 +17,28 @@ const ParetoFront2D = lazy(() => import("../components/ParetoFront2D"));
 const ConvergenceChart = lazy(() => import("../components/ConvergenceChart"));
 
 const HistoryAnalysis = () => {
-  const [jobMap, setJobMap] = useState({}); // { job_id: statusObj }
-  const [jobsLoading, setJobsLoading] = useState(true);
-  const [jobsError, setJobsError] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const jobIdFromUrl = searchParams.get("job");
 
-  const [selectedId, setSelectedId] = useState("");
-  const [jobData, setJobData] = useState(null); // result.json payload
-  const [resultLoading, setResultLoading] = useState(false);
-  const [resultError, setResultError] = useState(null);
-
-  // Fetch the job list once on mount.
-  useEffect(() => {
-    getJobs()
-      .then((data) => {
-        // Keep only completed jobs — incomplete runs have no result.json.
-        const completed = Object.fromEntries(
-          Object.entries(data).filter(([, s]) => s.status === "completed"),
-        );
-        setJobMap(completed);
-
-        // Auto-select the most recent run.
-        const ids = Object.keys(completed);
-        if (ids.length > 0) setSelectedId(ids[0]);
-      })
-      .catch((err) => setJobsError(err.message))
-      .finally(() => setJobsLoading(false));
-  }, []);
-
-  // Fetch result whenever the selected job changes.
-  useEffect(() => {
-    if (!selectedId) {
-      setJobData(null);
-      return;
-    }
-    setResultLoading(true);
-    setResultError(null);
-    setJobData(null);
-
-    getJobResult(selectedId)
-      .then(setJobData)
-      .catch((err) => setResultError(err.message))
-      .finally(() => setResultLoading(false));
-  }, [selectedId]);
-
+  const { data: jobMap = {}, isLoading: jobsLoading, error: jobsError } = useJobs();
   const completedIds = Object.keys(jobMap);
+
+  // Derivation chain: URL → localStorage → newest job
+  const lastSaved = localStorage.getItem("t_autonlp_last_history_job");
+  const activeJobId = jobIdFromUrl ?? lastSaved ?? completedIds[0];
+
+  useEffect(() => {
+    if (activeJobId) {
+      localStorage.setItem("t_autonlp_last_history_job", activeJobId);
+      if (jobIdFromUrl !== activeJobId) {
+        setSearchParams({ job: activeJobId }, { replace: true });
+      }
+    }
+  }, [activeJobId, jobIdFromUrl, setSearchParams]);
+
+  const handleJobSelect = (id) => setSearchParams({ job: id });
+
+  const { data: jobData, isLoading: resultLoading, error: resultError } = useJobResult(activeJobId);
   const metrics = jobData?.metrics ?? null;
   const allSolutions = jobData?.all_solutions ?? [];
   const paretoFront = jobData?.pareto_front ?? [];
@@ -94,7 +63,7 @@ const HistoryAnalysis = () => {
         ) : jobsError ? (
           <Alert variant="destructive">
             <AlertCircle />
-            <AlertDescription>{jobsError}</AlertDescription>
+            <AlertDescription>{jobsError.message}</AlertDescription>
           </Alert>
         ) : completedIds.length === 0 ? (
           <div className="rounded-xl border-2 border-dashed border-border bg-card p-12 text-center">
@@ -115,8 +84,8 @@ const HistoryAnalysis = () => {
               value: id,
               label: `${id} — ${fmt.date(jobMap[id]?.start_time)}`,
             }))}
-            value={selectedId}
-            onChange={setSelectedId}
+            value={activeJobId}
+            onChange={handleJobSelect}
           />
         )}
       </div>
@@ -131,7 +100,7 @@ const HistoryAnalysis = () => {
       {resultError && (
         <Alert variant="destructive">
           <AlertCircle />
-          <AlertDescription>{resultError}</AlertDescription>
+          <AlertDescription>{resultError.message}</AlertDescription>
         </Alert>
       )}
 

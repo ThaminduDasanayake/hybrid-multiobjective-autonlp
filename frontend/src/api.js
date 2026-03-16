@@ -113,16 +113,6 @@ export function cancelJob(jobId) {
 }
 
 /**
- * Resume a terminated or failed job from its last checkpoint.
- *
- * @param {string} jobId
- * @returns {Promise<{ message: string }>}
- */
-export function resumeJob(jobId) {
-  return _request(`/api/jobs/${jobId}/resume`, { method: "POST" });
-}
-
-/**
  * Fetch metrics from all completed ablation studies.
  *
  * @returns {Promise<Record<string, object>>}

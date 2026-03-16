@@ -44,10 +44,7 @@ def interpretability_score(
     model_scores = {
         "logistic": 1.0,
         "naive_bayes": 0.9,
-        "sgd": 0.9,
         "svm": 0.7,
-        "random_forest": 0.4,
-        "lightgbm": 0.3,
     }
     score += 0.3 * model_scores.get(model, 0.5)
 
@@ -59,7 +56,6 @@ def interpretability_score(
     feature_count_scores = {
         "5000": 1.0,
         "10000": 0.8,
-        "20000": 0.6,
         "None": 0.35,
     }
     feature_transparency = vectorizer_scores.get(
@@ -95,14 +91,6 @@ def interpretability_score(
     if model == "logistic":
         C = params.get("C", 1.0)
         simplicity += 0.6 * (1.0 / (1.0 + C))
-    elif model == "random_forest":
-        max_depth = params.get("max_depth", 10)
-        if max_depth in (None, "None"):
-            depth_term = 0.5
-        else:
-            depth_term = 1.0 / (1.0 + float(max_depth) / 10)
-        simplicity += 0.6 * depth_term
-        # simplicity += 0.6 * (1.0 / (1.0 + max_depth / 10))
     else:
         simplicity += 0.6 * 0.5
 

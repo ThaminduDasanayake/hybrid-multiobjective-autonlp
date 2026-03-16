@@ -1,4 +1,5 @@
 import Plot from "react-plotly.js";
+import { PRIMARY_COLOR } from "@/constants.js";
 
 const ConvergenceChart = ({ searchHistory = [] }) => {
   if (searchHistory.length === 0) {
@@ -35,13 +36,13 @@ const ConvergenceChart = ({ searchHistory = [] }) => {
       x: generations,
       y: maxF1,
       line: {
-        color: "#f97316", // Bright orange
+        color: PRIMARY_COLOR,
         width: 2,
         shape: "spline",
       },
       fill: "tozeroy",
       fillcolor: "rgba(249, 115, 22, 0.1)", // Faint transparent orange fill
-      marker: { size: 7, color: "#f97316", symbol: "circle" },
+      marker: { size: 7, color: PRIMARY_COLOR, symbol: "circle" },
       hovertemplate: "Generation %{x}<br>Max F1: %{y:.4f}<extra></extra>",
     },
   ];
@@ -49,22 +50,21 @@ const ConvergenceChart = ({ searchHistory = [] }) => {
   const layout = {
     autosize: true,
     margin: { l: 60, r: 20, t: 20, b: 55 },
-    paper_bgcolor: "rgba(0,0,0,0)", // Dark mode transparent
-    plot_bgcolor: "rgba(0,0,0,0)", // Dark mode transparent
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
     showlegend: false,
     xaxis: {
       title: { text: "Generation", font: { size: 12, color: "#94a3b8" } },
-      gridcolor: "#1e293b", // Dark mode grid
+      gridcolor: "#1e293b",
       zeroline: false,
       tickfont: { size: 10, color: "#64748b" },
       dtick: 1,
     },
     yaxis: {
       title: { text: "Max F1 Score ↑", font: { size: 12, color: "#94a3b8" } },
-      gridcolor: "#1e293b", // Dark mode grid
+      gridcolor: "#1e293b",
       zeroline: false,
       tickfont: { size: 10, color: "#64748b" },
-      // --- NEW: Force the Y-axis to bound tightly around the data ---
       range: [minScore - yPadding, maxScore + yPadding],
     },
   };

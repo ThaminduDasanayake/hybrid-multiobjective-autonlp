@@ -56,23 +56,22 @@ class EvolutionarySearch:
         self.stagnation_counter = 0
         self.last_pareto_hash = None
 
-        # Expanded gene pool (Structural Complexity)
+        # Compute-Aware Curated Gene Pool
         self.gene_pool = {
-            "scaler": [None, "maxabs", "robust"],  # "standard"
-            "dim_reduction": [None, "select_k_best"],  # "pca"
+            # Scalers: Excluded "standard" (slow on sparse matrices, minimal benefit)
+            "scaler": [None, "maxabs", "robust"],
+            # Dim reduction: Excluded "pca" (requires densification → memory issues)
+            "dim_reduction": [None, "select_k_best"],
+            # Vectorizers: Both TF-IDF and Count included (standard NLP approaches)
             "vectorizer": ["tfidf", "count"],
-            "model": ["logistic", "naive_bayes", "svm"],  # "random_forest", "sgd"
-            "ngram_range": ["1-1", "1-2"],  # "1-3"
-            "max_features": [5000, 10000, "None"],  # 20000
+            # Models: Excluded "random_forest" (slow), "sgd" (unstable on small data),
+            # "lightgbm" (low interpretability). Focus on interpretable linear models
+            "model": ["logistic", "naive_bayes", "svm"],
+            # N-grams: Excluded "1-3" (vocabulary explosion, minimal gain)
+            "ngram_range": ["1-1", "1-2"],
+            # Max features: Excluded 20000 (diminishing returns vs 10000)
+            "max_features": [5000, 10000, "None"],
         }
-
-        # Conditionally add LightGBM (Fix 6)
-        try:
-            import lightgbm
-
-            self.gene_pool["model"].append("lightgbm")
-        except ImportError:
-            logger.warning("LightGBM not found. Excluding from search space.")
 
         # Set seeds
         random.seed(random_state)
@@ -228,7 +227,7 @@ class EvolutionarySearch:
             # Restore fitness from eval cache where possible
             for ind in population:
                 key = self.result_store.get_individual_key(ind)
-                cached = self.result_store.get_cached_evaluation(key)
+                cached = self.result_store.peek(key)
                 if cached:
                     ind.fitness.values = (
                         cached["f1_score"],
@@ -265,11 +264,12 @@ class EvolutionarySearch:
             # Identify invalid individuals (those that need evaluation)
             invalid_ind = [ind for ind in population if not ind.fitness.valid]
 
-            # Count how many are truly new (not in the persistent cache)
+            # Count how many are truly new (not in the persistent cache).
+            # Uses peek() to avoid inflating the hit/miss counters.
             new_individuals_count = sum(
                 1
                 for ind in invalid_ind
-                if not self.result_store.get_cached_evaluation(
+                if not self.result_store.peek(
                     self.result_store.get_individual_key(ind)
                 )
             )
@@ -303,11 +303,6 @@ class EvolutionarySearch:
                 )
 
             hof.update(population)
-            # Save population genes so the run can be resumed after a crash/shutdown
-            # self.result_store.save_checkpoint(extra_state={
-            #     "population": [list(ind) for ind in population],
-            #     "completed_generations": gen + 1,
-            # })
 
             if self._check_early_stopping(hof, new_individuals_ratio):
                 logger.info(f"Stopped at generation {gen + 1}")

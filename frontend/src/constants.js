@@ -16,23 +16,19 @@ export const NAV_ITEMS = [
     description: "Browse past jobs",
   },
   {
-    to: "/defense",
+    to: "/ablations",
     icon: GraduationCap,
     label: "Thesis Defense",
     description: "Presentation mode",
   },
 ];
+
+// Config Form
 export const DATASETS = [
   { value: "imdb", label: "IMDB (sentiment, 2 classes)" },
   { value: "20newsgroups", label: "20 Newsgroups (topic, 20 classes)" },
   { value: "ag_news", label: "AG News (topic, 4 classes)" },
   { value: "banking77", label: "Banking77 (intent, 77 classes)" },
-];
-
-export const OPT_MODES = [
-  { value: "multi_3d", label: "3D: F1, Latency, Interpretability" },
-  { value: "multi_2d", label: "2D: F1, Latency" },
-  { value: "single_f1", label: "Single: F1 only" },
 ];
 
 export const DEFAULTS = {
@@ -54,18 +50,31 @@ export const DEMO_CONFIG = {
   bo_calls: 5,
 };
 
-export const PARAM_KEYS = [
-  "dataset_name",
-  "max_samples",
-  "population_size",
-  "n_generations",
-  "bo_calls",
+// Job Config Card
+export const PARAMS_CONFIG = [
+  { id: "dataset_name", label: "Dataset" },
+  { id: "max_samples", label: "Max Samples" },
+  { id: "population_size", label: "Population Size" },
+  { id: "n_generations", label: "Generations" },
+  { id: "bo_calls", label: "BO Calls" },
 ];
 
-export const PARAM_LABELS = {
-  dataset_name: "Dataset",
-  max_samples: "Max Samples",
-  population_size: "Population Size",
-  n_generations: "Generations",
-  bo_calls: "BO Calls",
+// Status Badge
+export const STYLE_MAP = {
+  created: { variant: "outline" },
+  running: { variant: "outline", className: "border-primary/30 bg-primary/15 text-primary" },
+  completed: { variant: "secondary" },
+  failed: { variant: "destructive" },
+  terminated: { variant: "ghost" },
 };
+
+export const LABEL_MAP = {
+  created: "Queued",
+  running: "Running",
+  completed: "Completed",
+  failed: "Failed",
+  terminated: "Terminated",
+};
+
+// Graphs
+export const PRIMARY_COLOR = "#f97316";
