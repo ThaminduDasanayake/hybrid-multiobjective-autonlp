@@ -1,12 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  AlertCircle,
-  BarChart3,
-  FlaskConical,
-  Loader2,
-  Play,
-  RefreshCw,
-} from "lucide-react";
+import { AlertCircle, BarChart3, FlaskConical, Loader2, Play, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useAblations, useJobResult, useJobs, useRunAblation } from "../hooks/useApi";
 import DropdownSelector from "../components/DropdownSelector";
@@ -117,11 +110,7 @@ const ThesisDefense = () => {
   const isPolling = Object.values(queued).some(Boolean);
 
   // ── server data ────────────────────────────────────────────────────────────
-  const {
-    data: jobMap = {},
-    isLoading: jobsLoading,
-    error: jobsError,
-  } = useJobs();
+  const { data: jobMap = {}, isLoading: jobsLoading, error: jobsError } = useJobs();
 
   // Derivation chain: URL → localStorage → newest job
   const completedIds = Object.keys(jobMap);
@@ -172,7 +161,10 @@ const ThesisDefense = () => {
     setQueued((q) => ({ ...q, [key]: true }));
     runAblationMutation.mutate(
       { mode, disable_bo: disableBo, dataset },
-      { onError: () => setQueued((q) => ({ ...q, [key]: false })) },
+      {
+        onSuccess: () => setQueued((q) => ({ ...q, [key]: false })),
+        onError: () => setQueued((q) => ({ ...q, [key]: false })),
+      },
     );
   };
 

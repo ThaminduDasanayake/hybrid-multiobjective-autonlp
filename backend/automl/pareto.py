@@ -11,18 +11,28 @@ and metrics aggregation on top.
 
 from typing import Any, Dict, List
 
+_DEFAULT_OBJECTIVES = ("f1_score", "latency", "interpretability")
+_DEFAULT_MAXIMIZE = (True, False, True)
+
 
 def is_dominated(
     solution_a: Dict[str, float],
     solution_b: Dict[str, float],
-    objectives: List[str] = ["f1_score", "latency", "interpretability"],
-    maximize: List[bool] = [True, False, True],
+    objectives: List[str] = None,
+    maximize: List[bool] = None,
 ) -> bool:
     """Return True if solution_a is Pareto-dominated by solution_b.
 
     B dominates A when B is at least as good in every objective and strictly
     better in at least one.
     """
+
+    if objectives is None:
+        objectives = _DEFAULT_OBJECTIVES
+
+    if maximize is None:
+        maximize = _DEFAULT_MAXIMIZE
+
     better_or_equal = True
     strictly_better = False
 
@@ -48,10 +58,16 @@ def is_dominated(
 
 def get_pareto_front(
     solutions: List[Dict[str, Any]],
-    objectives: List[str] = ["f1_score", "latency", "interpretability"],
-    maximize: List[bool] = [True, False, True],
+    objectives: List[str] = None,
+    maximize: List[bool] = None,
 ) -> List[Dict[str, Any]]:
     """Return the subset of solutions that are not Pareto-dominated."""
+    if objectives is None:
+        objectives = _DEFAULT_OBJECTIVES
+
+    if maximize is None:
+        maximize = _DEFAULT_MAXIMIZE
+
     pareto_front = []
     for i, sol_a in enumerate(solutions):
         dominated = any(

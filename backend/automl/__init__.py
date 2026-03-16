@@ -1,7 +1,12 @@
 """Core AutoML logic modules."""
 
-from .hybrid_automl import HybridAutoML
 from .bayesian_optimization import BayesianOptimizer
-from .pareto import is_dominated, get_pareto_front
+from .hybrid_automl import HybridAutoML
+from .pareto import get_pareto_front, is_dominated
 
-__all__ = ["HybridAutoML", "BayesianOptimizer", "is_dominated", "get_pareto_front"]
+__all__ = [
+    "BayesianOptimizer",
+    "HybridAutoML",
+    get_pareto_front,
+    is_dominated,
+]

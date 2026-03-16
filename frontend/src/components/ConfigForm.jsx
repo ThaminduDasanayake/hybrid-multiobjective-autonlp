@@ -21,6 +21,7 @@ const ConfigForm = ({ onJobStarted }) => {
   const setNum = (key) => (val) => setConfig((prev) => ({ ...prev, [key]: val }));
 
   const submit = (config) => {
+    if (startJobMutation.isPending) return;
     startJobMutation.mutate(config, {
       onSuccess: ({ job_id }) => onJobStarted(job_id),
     });
