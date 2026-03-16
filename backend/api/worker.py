@@ -209,13 +209,13 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
                 try:
                     store = automl.result_store
                     total_lookups = store.cache_hit_count + store.cache_miss_count
-                    best_f1 = (
-                        max(
-                            (v.get("f1_score", 0.0) for v in store.eval_cache.values()),
-                            default=0.0,
-                        )
-                        if store.eval_cache
-                        else 0.0
+                    best_f1 = max(
+                        (
+                            v.get("f1_score", 0.0)
+                            for v in store.eval_cache.values()
+                            if v.get("status") == "success"
+                        ),
+                        default=0.0,
                     )
                     cache_hit_rate = (
                         round(store.cache_hit_count / total_lookups * 100, 1)

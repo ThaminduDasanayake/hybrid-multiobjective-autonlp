@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, BarChart3, FlaskConical, Loader2, Play, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useAblations, useJobResult, useJobs, useRunAblation } from "../hooks/useApi";
@@ -105,6 +105,10 @@ const ThesisDefense = () => {
   // Tracks which ablation keys have been queued this session. Kept as local
   // state because one mutation can have multiple concurrent pending keys.
   const [queued, setQueued] = useState({});
+  // Mutable ref mirrors queued for synchronous duplicate-click guard — React
+  // state updates are async so the ref prevents a second click firing a second
+  // mutation before the first re-render disables the button.
+  const queuedRef = useRef({});
 
   // Derived: true while at least one run is still queued
   const isPolling = Object.values(queued).some(Boolean);
@@ -113,9 +117,15 @@ const ThesisDefense = () => {
   const { data: jobMap = {}, isLoading: jobsLoading, error: jobsError } = useJobs();
 
   // Derivation chain: URL → localStorage → newest job
+  // Each candidate is validated against the current jobMap to avoid stale IDs.
   const completedIds = Object.keys(jobMap);
   const lastSaved = localStorage.getItem("t_autonlp_last_ablation_job");
-  const selectedJobId = jobIdFromUrl ?? lastSaved ?? completedIds[0];
+  const completedSet = new Set(completedIds);
+  const selectedJobId =
+    (jobIdFromUrl && completedSet.has(jobIdFromUrl) ? jobIdFromUrl : null) ??
+    (lastSaved && completedSet.has(lastSaved) ? lastSaved : null) ??
+    completedIds[0] ??
+    null;
 
   useEffect(() => {
     if (selectedJobId) {
@@ -123,6 +133,9 @@ const ThesisDefense = () => {
       if (jobIdFromUrl !== selectedJobId) {
         setSearchParams({ job: selectedJobId }, { replace: true });
       }
+    } else {
+      // No valid job — clear stale localStorage entry
+      localStorage.removeItem("t_autonlp_last_ablation_job");
     }
   }, [selectedJobId, jobIdFromUrl, setSearchParams]);
 
@@ -158,13 +171,18 @@ const ThesisDefense = () => {
   // ── handlers ───────────────────────────────────────────────────────────────
   const handleRun = (mode, disableBo) => {
     const key = `${disableBo ? "ga_only" : mode}_${dataset}`;
+    // Synchronous guard: prevents a second mutation before React re-renders
+    // and disables the button via the queued state update below.
+    if (queuedRef.current[key]) return;
+    queuedRef.current[key] = true;
     setQueued((q) => ({ ...q, [key]: true }));
+    const clearKey = () => {
+      queuedRef.current[key] = false;
+      setQueued((q) => ({ ...q, [key]: false }));
+    };
     runAblationMutation.mutate(
       { mode, disable_bo: disableBo, dataset },
-      {
-        onSuccess: () => setQueued((q) => ({ ...q, [key]: false })),
-        onError: () => setQueued((q) => ({ ...q, [key]: false })),
-      },
+      { onSuccess: clearKey, onError: clearKey },
     );
   };
 

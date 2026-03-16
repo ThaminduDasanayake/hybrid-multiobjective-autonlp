@@ -33,10 +33,13 @@ def is_dominated(
     if maximize is None:
         maximize = _DEFAULT_MAXIMIZE
 
+    if len(objectives) != len(maximize):
+        raise ValueError("`objectives` and `maximize` must have the same length")
+
     better_or_equal = True
     strictly_better = False
 
-    for obj, is_max in zip(objectives, maximize):
+    for obj, is_max in zip(objectives, maximize, strict=True):
         val_a = solution_a[obj]
         val_b = solution_b[obj]
 

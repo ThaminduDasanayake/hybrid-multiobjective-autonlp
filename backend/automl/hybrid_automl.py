@@ -74,8 +74,9 @@ class HybridAutoML:
         all_solutions = list(self.result_store.eval_cache.values())
 
         # Recompute the global Pareto front from all evaluated solutions.
-        # This ensures consistency with UI metrics and catches solutions missed by HOF.
-        pareto_solutions = get_pareto_front(all_solutions)
+        # Exclude penalty/invalid entries so dominance analysis only covers valid results.
+        valid_solutions = [s for s in all_solutions if s.get("status") == "success"]
+        pareto_solutions = get_pareto_front(valid_solutions)
 
         # Calculate Search Summary & Learning Curve
         # Retrieve penalty history directly from the search engine (Clean Separation)
