@@ -1,5 +1,6 @@
 import Plot from "react-plotly.js";
-import { fmt } from "../utils/formatters";
+import { fmt } from "@/utils/formatters.js";
+import { COLORS, AXIS_STYLE, CHART_LAYOUT, LEGEND_STYLE, CHART_CONFIG } from "@/utils/chartTheme.js";
 
 function buildCustomData(solutions) {
   return solutions.map((s) => [
@@ -32,10 +33,19 @@ const PARETO_HOVER_TEMPLATE =
   "Interpretability: %{z:.3f}" +
   "<extra></extra>";
 
+const SCENE_AXIS = {
+  gridcolor: COLORS.slate800,
+  backgroundcolor: COLORS.transparent,
+  showspikes: false,
+  tickfont: { size: 10, color: COLORS.slate500 },
+  titlefont: { size: 12, color: COLORS.slate400 },
+  zerolinecolor: COLORS.slate800,
+};
+
 const ParetoFront3D = ({ allSolutions = [], paretoFront = [] }) => {
   if (allSolutions.length === 0 && paretoFront.length === 0) {
     return (
-      <div className="flex h-96 items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
+      <div className="chart-empty h-96">
         No solution data available for this run.
       </div>
     );
@@ -51,11 +61,7 @@ const ParetoFront3D = ({ allSolutions = [], paretoFront = [] }) => {
       z: allSolutions.map((s) => s.interpretability),
       customdata: buildCustomData(allSolutions),
       hovertemplate: HOVER_TEMPLATE,
-      marker: {
-        size: 4,
-        color: "rgba(148, 163, 184, 0.35)", // Muted slate for dominated solutions
-        line: { width: 0 },
-      },
+      marker: { size: 4, color: COLORS.dominatedSolution, line: { width: 0 } },
     },
     {
       type: "scatter3d",
@@ -68,61 +74,33 @@ const ParetoFront3D = ({ allSolutions = [], paretoFront = [] }) => {
       hovertemplate: PARETO_HOVER_TEMPLATE,
       marker: {
         size: 9,
-        color: "#f97316", // Bright orange for Pareto front
+        color: COLORS.primary,
         symbol: "diamond",
-        line: { color: "#ea580c", width: 1 },
+        line: { color: COLORS.primaryDark, width: 1 },
         opacity: 0.95,
       },
     },
   ];
 
-  // DARK MODE STYLING
-  const axisStyle = {
-    gridcolor: "#1e293b", // Dark grid lines
-    backgroundcolor: "rgba(0,0,0,0)", // Transparent background
-    showspikes: false,
-    tickfont: { size: 10, color: "#64748b" },
-    titlefont: { size: 12, color: "#94a3b8" }, // Lighter text for dark mode
-    zerolinecolor: "#1e293b",
-  };
-
   const layout = {
-    autosize: true,
+    ...CHART_LAYOUT,
     margin: { l: 0, r: 0, t: 0, b: 0 },
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
     showlegend: true,
-    legend: {
-      x: 0.01,
-      y: 0.99,
-      bgcolor: "rgba(2, 6, 23, 0.8)", // Dark translucent legend
-      bordercolor: "#1e293b",
-      borderwidth: 1,
-      font: { size: 12, color: "#cbd5e1" },
-    },
+    legend: { x: 0.01, y: 0.99, ...LEGEND_STYLE, font: { size: 12, color: COLORS.slate200 } },
     scene: {
-      xaxis: { ...axisStyle, title: { text: "F1 Score ↑" } },
-      yaxis: { ...axisStyle, title: { text: "Latency (ms) ↓" } },
-      zaxis: { ...axisStyle, title: { text: "Interpretability ↑" } },
-      bgcolor: "rgba(0,0,0,0)", // Removes the grey 3D box
-      camera: {
-        eye: { x: 1.6, y: -1.6, z: 0.8 },
-      },
+      xaxis: { ...SCENE_AXIS, title: { text: "F1 Score ↑" } },
+      yaxis: { ...SCENE_AXIS, title: { text: "Latency (ms) ↓" } },
+      zaxis: { ...SCENE_AXIS, title: { text: "Interpretability ↑" } },
+      bgcolor: COLORS.transparent,
+      camera: { eye: { x: 1.6, y: -1.6, z: 0.8 } },
     },
-  };
-
-  const config = {
-    responsive: true,
-    displayModeBar: true,
-    modeBarButtonsToRemove: ["toImage", "sendDataToCloud"],
-    displaylogo: false,
   };
 
   return (
     <Plot
       data={data}
       layout={layout}
-      config={config}
+      config={CHART_CONFIG}
       useResizeHandler
       style={{ width: "100%", height: "520px" }}
     />

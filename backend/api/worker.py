@@ -118,7 +118,14 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
     import os
     import time
     import traceback
+    import warnings
     from pathlib import Path
+
+    from sklearn.exceptions import ConvergenceWarning
+
+    warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
+    warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+    warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
     from automl import HybridAutoML
     from utils.evaluation import ParetoAnalyzer
@@ -209,12 +216,20 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
                 try:
                     store = automl.result_store
                     total_lookups = store.cache_hit_count + store.cache_miss_count
+                    successful = [
+                        v for v in store.eval_cache.values()
+                        if v.get("status") == "success"
+                    ]
                     best_f1 = max(
-                        (
-                            v.get("f1_score", 0.0)
-                            for v in store.eval_cache.values()
-                            if v.get("status") == "success"
-                        ),
+                        (v.get("f1_score", 0.0) for v in successful),
+                        default=0.0,
+                    )
+                    best_latency_ms = min(
+                        (v.get("latency", float("inf")) * 1000 for v in successful),
+                        default=0.0,
+                    )
+                    best_interpretability = max(
+                        (v.get("interpretability", 0.0) for v in successful),
                         default=0.0,
                     )
                     cache_hit_rate = (
@@ -223,6 +238,8 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
                         else 0.0
                     )
                     current["best_f1"] = round(best_f1, 4)
+                    current["best_latency_ms"] = round(best_latency_ms, 2)
+                    current["best_interpretability"] = round(best_interpretability, 4)
                     current["cache_hit_rate"] = cache_hit_rate
                     current["total_evaluated"] = len(store.eval_cache)
                 except Exception:
@@ -276,6 +293,7 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
 
 def run_ablation(
     mode: str,
+    parent_job_id: str,
     dataset: str,
     disable_bo: bool,
     max_samples: int = 2000,
@@ -292,7 +310,8 @@ def run_ablation(
 
     Args:
         mode:             DEAP optimization mode (single_f1 / multi_2d / multi_3d).
-        dataset:          Dataset identifier (ag_news / imdb / …).
+        parent_job_id:    ID of the parent job whose config this ablation inherits.
+        dataset:          Dataset identifier (resolved from parent job config).
         disable_bo:       If True, skip Bayesian Optimisation (GA-only ablation).
         max_samples:      Maximum training samples.
         population_size:  GA population size.
@@ -305,7 +324,14 @@ def run_ablation(
 
     import json
     import time
+    import warnings
     from pathlib import Path
+
+    from sklearn.exceptions import ConvergenceWarning
+
+    warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
+    warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+    warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
     from automl import HybridAutoML
     from automl.search_engine import OPTIMIZATION_MODES
@@ -313,68 +339,75 @@ def run_ablation(
     from utils import DataLoader, to_python_type
     from utils.logger import get_logger
 
-    logger = get_logger("worker")
-    logger.info(f"Ablation start — mode={mode}, dataset={dataset}, disable_bo={disable_bo}")
+    ablation_log_id = f"ablation_{mode}{'_nobo' if disable_bo else ''}_{parent_job_id}"
 
-    weights = OPTIMIZATION_MODES.get(mode, [1.0, -1.0, 1.0])
+    with _job_file_logging(ablation_log_id, backend_root_str):
+        logger = get_logger("worker")
+        logger.info(
+            f"Ablation start — mode={mode}, parent={parent_job_id}, "
+            f"dataset={dataset}, disable_bo={disable_bo}"
+        )
 
-    data_dir = str(Path(backend_root_str) / "data")
-    data_loader = DataLoader(cache_dir=data_dir)
-    X_train, y_train = data_loader.load_dataset(
-        dataset, subset="train", max_samples=max_samples
-    )
-    logger.info(f"Loaded {len(X_train)} samples for {dataset}")
+        weights = OPTIMIZATION_MODES.get(mode, [1.0, -1.0, 1.0])
 
-    automl = HybridAutoML(
-        X_train=X_train,
-        y_train=y_train,
-        population_size=population_size,
-        n_generations=n_generations,
-        bo_calls=0 if disable_bo else bo_calls,
-        random_state=seed,
-        optimization_mode=mode,
-        disable_bo=disable_bo,
-    )
+        data_dir = str(Path(backend_root_str) / "data")
+        data_loader = DataLoader(cache_dir=data_dir)
+        X_train, y_train = data_loader.load_dataset(
+            dataset, subset="train", max_samples=max_samples
+        )
+        logger.info(f"Loaded {len(X_train)} samples for {dataset}")
 
-    start = time.time()
-    results = automl.run()
-    elapsed = time.time() - start
+        automl = HybridAutoML(
+            X_train=X_train,
+            y_train=y_train,
+            population_size=population_size,
+            n_generations=n_generations,
+            bo_calls=0 if disable_bo else bo_calls,
+            random_state=seed,
+            optimization_mode=mode,
+            disable_bo=disable_bo,
+        )
 
-    analyzer = ParetoAnalyzer()
-    raw = analyzer.compute_metrics(results.get("all_solutions", []))
-    metrics = _format_metrics(raw)
-    # Ablation results omit knee_point (not needed for batch study comparisons).
-    metrics.pop("knee_point", None)
+        start = time.time()
+        results = automl.run()
+        elapsed = time.time() - start
 
-    output_dir = Path(backend_root_str) / "results" / "ablations"
-    output_dir.mkdir(parents=True, exist_ok=True)
+        analyzer = ParetoAnalyzer()
+        raw = analyzer.compute_metrics(results.get("all_solutions", []))
+        metrics = _format_metrics(raw)
+        # Ablation results omit knee_point (not needed for batch study comparisons).
+        metrics.pop("knee_point", None)
 
-    name_parts = ["ablation", mode]
-    if disable_bo:
-        name_parts.append("nobo")
-    name_parts.append(dataset)
-    output_file = output_dir / f"{'_'.join(name_parts)}.json"
+        output_dir = Path(backend_root_str) / "results" / "ablations"
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    payload = {
-        "mode": mode,
-        "weights": weights,
-        "dataset": dataset,
-        "disable_bo": disable_bo,
-        "config": {
-            "pop_size": population_size,
-            "generations": n_generations,
-            "bo_calls": 0 if disable_bo else bo_calls,
-            "max_samples": max_samples,
-            "seed": seed,
-        },
-        "metrics": metrics,
-        "runtime_seconds": elapsed,
-        "results": to_python_type(results),
-    }
+        name_parts = ["ablation", mode]
+        if disable_bo:
+            name_parts.append("nobo")
+        name_parts.append(parent_job_id)
+        output_file = output_dir / f"{'_'.join(name_parts)}.json"
 
-    tmp_file = output_file.with_suffix(f"{output_file.suffix}.tmp")
-    with open(tmp_file, "w") as f:
-        json.dump(to_python_type(payload), f, indent=2, allow_nan=False)
-    tmp_file.replace(output_file)
+        payload = {
+            "mode": mode,
+            "weights": weights,
+            "dataset": dataset,
+            "parent_job_id": parent_job_id,
+            "disable_bo": disable_bo,
+            "config": {
+                "pop_size": population_size,
+                "generations": n_generations,
+                "bo_calls": 0 if disable_bo else bo_calls,
+                "max_samples": max_samples,
+                "seed": seed,
+            },
+            "metrics": metrics,
+            "runtime_seconds": elapsed,
+            "results": to_python_type(results),
+        }
 
-    logger.info(f"Ablation saved → {output_file}")
+        tmp_file = output_file.with_suffix(f"{output_file.suffix}.tmp")
+        with open(tmp_file, "w") as f:
+            json.dump(to_python_type(payload), f, indent=2, allow_nan=False)
+        tmp_file.replace(output_file)
+
+        logger.info(f"Ablation saved → {output_file}")

@@ -2,8 +2,7 @@
  * React Query hooks for the T-AutoNLP API.
  *
  * Query key hierarchy
- * ───────────────────
- *   ["jobs"]                  — full job list (shared between History and Thesis pages)
+ *   ["jobs"]                  — full job list (shared between History and Experiments pages)
  *   ["job-result", jobId]     — result.json for one completed job
  *   ["ablations"]             — all ablation study results
  *
@@ -12,13 +11,21 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { cancelJob, getAblations, getJobResult, getJobs, runAblation, startJob } from "@/api.js";
+import {
+  cancelJob,
+  getAblations,
+  getHypervolumeHistory,
+  getJobResult,
+  getJobs,
+  runAblation,
+  startJob,
+} from "@/api.js";
 
-// ─────────────────────────────────────────────────────────────── query hooks
+// query hooks
 
 /**
  * Fetches all jobs and filters to completed ones only.
- * Both HistoryAnalysis and ThesisDefense share this cache entry.
+ * Both HistoryAnalysis and Experiments share this cache entry.
  *
  * @returns {import("@tanstack/react-query").UseQueryResult<Record<string, object>>}
  */
@@ -28,9 +35,7 @@ export function useJobs() {
     queryFn: async () => {
       const data = await getJobs();
       // Keep only completed jobs — incomplete runs have no result.json.
-      return Object.fromEntries(
-        Object.entries(data).filter(([, s]) => s.status === "completed"),
-      );
+      return Object.fromEntries(Object.entries(data).filter(([, s]) => s.status === "completed"));
     },
     // 15 s is long enough that navigating between pages doesn't re-fetch,
     // but short enough that a job completing in the background is seen soon.
@@ -61,7 +66,7 @@ export function useJobResult(jobId) {
  * Fetches all ablation study results.
  *
  * Pass `refetchInterval` to enable automatic polling while ablation jobs are
- * still running (ThesisDefense uses this while queued jobs are pending).
+ * still running (Experiments uses this while queued jobs are pending).
  *
  * @param {{ refetchInterval?: number | false }} [opts]
  * @returns {import("@tanstack/react-query").UseQueryResult<Record<string, object>>}
@@ -75,7 +80,22 @@ export function useAblations({ refetchInterval = false } = {}) {
   });
 }
 
-// ──────────────────────────────────────────────────────────── mutation hooks
+/**
+ * Fetches per-generation hypervolume history for a completed job.
+ *
+ * @param {string | null | undefined} jobId
+ * @returns {import("@tanstack/react-query").UseQueryResult<Array<{ generation: number, hypervolume: number }>>}
+ */
+export function useHypervolumeHistory(jobId) {
+  return useQuery({
+    queryKey: ["hv-history", jobId],
+    queryFn: () => getHypervolumeHistory(jobId),
+    enabled: !!jobId,
+    staleTime: Infinity,
+  });
+}
+
+// mutation hooks
 
 /**
  * Starts a new AutoML job.

@@ -1,4 +1,4 @@
-import { Badge } from "./ui/badge.jsx";
+import { Badge } from "../ui/badge.jsx";
 import { LABEL_MAP, STYLE_MAP } from "@/constants.js";
 
 /**

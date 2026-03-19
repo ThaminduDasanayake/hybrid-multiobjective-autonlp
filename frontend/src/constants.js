@@ -16,9 +16,9 @@ export const NAV_ITEMS = [
     description: "Browse past jobs",
   },
   {
-    to: "/ablations",
+    to: "/experiments",
     icon: GraduationCap,
-    label: "Thesis Defense",
+    label: "Experiments",
     description: "Presentation mode",
   },
 ];
@@ -41,13 +41,16 @@ export const DEFAULTS = {
   disable_bo: false,
 };
 
+// Live Tracker
+export const TERMINAL_STATES = new Set(["completed", "failed", "terminated"]);
+
 // Shortened preset for a quick smoke-test demo (~3 min run).
 export const DEMO_CONFIG = {
   ...DEFAULTS,
   max_samples: 500,
   population_size: 5,
   n_generations: 3,
-  bo_calls: 5,
+  bo_calls: 10,
 };
 
 // Job Config Card
@@ -76,5 +79,5 @@ export const LABEL_MAP = {
   terminated: "Terminated",
 };
 
-// Graphs
-export const PRIMARY_COLOR = "#f97316";
+// Pareto Heatmap
+export const MODEL_LABEL = { logistic: "LR", naive_bayes: "NB", svm: "SVM" };

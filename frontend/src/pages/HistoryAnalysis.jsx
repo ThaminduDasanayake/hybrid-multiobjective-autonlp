@@ -1,20 +1,30 @@
 import { lazy, Suspense, useEffect } from "react";
 import { AlertCircle, BarChart3, Box, Clock, Layers, Loader2, Star } from "lucide-react";
-import { useJobResult, useJobs } from "../hooks/useApi";
-import DecisionSupport from "../components/DecisionSupport";
+import { useHypervolumeHistory, useJobResult, useJobs } from "../hooks/useApi";
+import DecisionSupport from "../components/history-analysis/DecisionSupport.jsx";
 import DropdownSelector from "../components/DropdownSelector";
 import JobConfigCard from "../components/JobConfigCard";
-import SolutionsTable from "../components/SolutionsTable";
+import SolutionsTable from "../components/history-analysis/SolutionsTable.jsx";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { fmt } from "../utils/formatters";
-import MetricCard from "@/components/MetricCard.jsx";
+import MetricCard from "@/components/history-analysis/MetricCard.jsx";
 import { useSearchParams } from "react-router-dom";
 
 // Lazy-load Plotly chart components so plotly.js (~3 MB) is only fetched when
 // the user navigates to this page — not included in the initial app bundle.
-const ParetoFront3D = lazy(() => import("../components/ParetoFront3D"));
-const ParetoFront2D = lazy(() => import("../components/ParetoFront2D"));
-const ConvergenceChart = lazy(() => import("../components/ConvergenceChart"));
+const ParetoFront3D = lazy(() => import("../components/history-analysis/ParetoFront3D.jsx"));
+const ParetoFront2D = lazy(() => import("../components/history-analysis/ParetoFront2D.jsx"));
+const ConvergenceChart = lazy(() => import("../components/history-analysis/ConvergenceChart.jsx"));
+const HypervolumeConvergenceChart = lazy(
+  () => import("../components/history-analysis/HypervolumeConvergenceChart.jsx"),
+);
+const ParetoHeatmap = lazy(() => import("../components/history-analysis/ParetoHeatmap.jsx"));
+const PipelineBreakdownChart = lazy(
+  () => import("../components/history-analysis/PipelineBreakdownChart.jsx"),
+);
+const ModelDistributionChart = lazy(
+  () => import("../components/history-analysis/ModelDistributionChart.jsx"),
+);
 
 const HistoryAnalysis = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -39,6 +49,7 @@ const HistoryAnalysis = () => {
   const handleJobSelect = (id) => setSearchParams({ job: id });
 
   const { data: jobData, isLoading: resultLoading, error: resultError } = useJobResult(activeJobId);
+  const { data: hvHistory = [] } = useHypervolumeHistory(activeJobId);
   const metrics = jobData?.metrics ?? null;
   const allSolutions = jobData?.all_solutions ?? [];
   const paretoFront = jobData?.pareto_front ?? [];
@@ -143,23 +154,25 @@ const HistoryAnalysis = () => {
 
           <DecisionSupport paretoFront={paretoFront} kneePoint={metrics?.knee_point} />
 
+          {/*3D Pareto projection*/}
           <section>
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <h2 className="text-base font-semibold text-foreground">3D Pareto Front</h2>
-                <p className="text-xs text-muted-foreground accent-teal-600">
-                  Orange diamonds = Pareto-optimal · Grey = dominated solutions
-                </p>
+                <h2 className="section-title">3D Pareto Front</h2>
+                <ul className="section-subtitle">
+                  <li>Orange = Pareto-optimal</li>
+                  <li>Grey = dominated solutions</li>
+                </ul>
               </div>
               <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">
                 {allSolutions.length} solutions
               </span>
             </div>
 
-            <div className="overflow-hidden rounded-xl border border-border bg-card p-2 shadow-sm">
+            <div className="card-section">
               <Suspense
                 fallback={
-                  <div className="flex h-130 items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <div className="chart-empty h-130 gap-2">
                     <Loader2 size={16} className="animate-spin" />
                     Loading chart…
                   </div>
@@ -170,22 +183,23 @@ const HistoryAnalysis = () => {
             </div>
           </section>
 
-          {/* ── 2D Pareto projections ────────────────────────────────── */}
+          {/*2D Pareto projections*/}
           <section>
             <div className="mb-3">
-              <h2 className="text-base font-semibold text-foreground">2D Pareto Projections</h2>
-              <p className="text-xs text-muted-foreground">
-                Orange = Pareto-optimal (connected) · Grey = dominated solutions
-              </p>
+              <h2 className="section-title">2D Pareto Projections</h2>
+              <ul className="section-subtitle">
+                <li>Orange = Pareto-optimal (connected)</li>
+                <li>Grey = dominated solutions</li>
+              </ul>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="overflow-hidden rounded-xl border border-border bg-card p-2 shadow-sm">
+              <div className="card-section">
                 <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">
                   F1 Score vs. Latency
                 </p>
                 <Suspense
                   fallback={
-                    <div className="flex h-90 items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <div className="chart-empty h-90 gap-2">
                       <Loader2 size={16} className="animate-spin" />
                       Loading chart…
                     </div>
@@ -202,13 +216,13 @@ const HistoryAnalysis = () => {
                   />
                 </Suspense>
               </div>
-              <div className="overflow-hidden rounded-xl border border-border bg-card p-2 shadow-sm">
+              <div className="card-section">
                 <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">
                   F1 Score vs. Interpretability
                 </p>
                 <Suspense
                   fallback={
-                    <div className="flex h-90 items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <div className="chart-empty h-90 gap-2">
                       <Loader2 size={16} className="animate-spin" />
                       Loading chart…
                     </div>
@@ -224,36 +238,147 @@ const HistoryAnalysis = () => {
                   />
                 </Suspense>
               </div>
+              <div className="card-section">
+                <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">
+                  Latency vs. Interpretability
+                </p>
+                <Suspense
+                  fallback={
+                    <div className="chart-empty h-90 gap-2">
+                      <Loader2 size={16} className="animate-spin" />
+                      Loading chart…
+                    </div>
+                  }
+                >
+                  <ParetoFront2D
+                    allSolutions={allSolutions}
+                    paretoFront={paretoFront}
+                    xKey="latency"
+                    yKey="interpretability"
+                    xLabel="Latency (ms) ↓"
+                    yLabel="Interpretability ↑"
+                    xScale={1000}
+                  />
+                </Suspense>
+              </div>
             </div>
           </section>
 
+          {/*Solution Analysis*/}
           <section>
             <div className="mb-3">
-              <h2 className="text-base font-semibold text-foreground">
-                Search History &amp; Convergence
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Maximum F1 score found by the GA at each generation
+              <h2 className="section-title">Solution Analysis</h2>
+              <p className="section-subtitle">
+                Distribution of models and objective values across the search
               </p>
             </div>
-            <div className="overflow-hidden rounded-xl border border-border bg-card p-2 shadow-sm">
+            <div className="card-section">
+              <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">Model Frequency</p>
               <Suspense
                 fallback={
-                  <div className="flex h-90 items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <div className="chart-empty h-90 gap-2">
                     <Loader2 size={16} className="animate-spin" />
                     Loading chart…
                   </div>
                 }
               >
-                <ConvergenceChart searchHistory={searchHistory} />
+                <ModelDistributionChart allSolutions={allSolutions} paretoFront={paretoFront} />
               </Suspense>
+            </div>
+          </section>
+
+          {/* Pipeline Component Breakdown */}
+          <section>
+            <div className="mb-3">
+              <h2 className="section-title">Pipeline Component Breakdown</h2>
+              <p className="section-subtitle">
+                Frequency of vectorizer, scaler, and dimensionality reduction choices — all
+                solutions vs Pareto front
+              </p>
+            </div>
+            <div className="card-section">
+              <Suspense
+                fallback={
+                  <div className="chart-empty h-40 gap-2">
+                    <Loader2 size={16} className="animate-spin" />
+                    Loading chart…
+                  </div>
+                }
+              >
+                <PipelineBreakdownChart allSolutions={allSolutions} paretoFront={paretoFront} />
+              </Suspense>
+            </div>
+          </section>
+
+          {/* Pareto Front Trade-off Heatmap */}
+          <section>
+            <div className="mb-3">
+              <h2 className="section-title">Pareto Front Trade-off Analysis</h2>
+              <p className="section-subtitle">
+                Each row is one Pareto-optimal pipeline — orange = high value (good), dark = low
+                value. Latency is inverted so orange always means better.
+              </p>
+            </div>
+            <div className="card-section">
+              <Suspense
+                fallback={
+                  <div className="chart-empty h-40 gap-2">
+                    <Loader2 size={16} className="animate-spin" />
+                    Loading chart…
+                  </div>
+                }
+              >
+                <ParetoHeatmap paretoFront={paretoFront} />
+              </Suspense>
+            </div>
+          </section>
+
+          {/* Convergence Analysis */}
+          <section>
+            <div className="mb-3">
+              <h2 className="section-title">Convergence Analysis</h2>
+              <p className="section-subtitle">
+                F1 score and hypervolume progression across GA generations
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="card-section">
+                <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">
+                  Max F1 per Generation
+                </p>
+                <Suspense
+                  fallback={
+                    <div className="chart-empty h-90 gap-2">
+                      <Loader2 size={16} className="animate-spin" />
+                      Loading chart…
+                    </div>
+                  }
+                >
+                  <ConvergenceChart searchHistory={searchHistory} />
+                </Suspense>
+              </div>
+              <div className="card-section">
+                <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">
+                  Hypervolume per Generation
+                </p>
+                <Suspense
+                  fallback={
+                    <div className="chart-empty h-90 gap-2">
+                      <Loader2 size={16} className="animate-spin" />
+                      Loading chart…
+                    </div>
+                  }
+                >
+                  <HypervolumeConvergenceChart hvHistory={hvHistory} />
+                </Suspense>
+              </div>
             </div>
           </section>
 
           <section>
             <div className="mb-3">
-              <h2 className="text-base font-semibold text-foreground">Pareto-Optimal Pipelines</h2>
-              <p className="text-xs text-muted-foreground">
+              <h2 className="section-title">Pareto-Optimal Pipelines</h2>
+              <p className="section-subtitle">
                 Ranked by F1 score — all pipelines below are non-dominated
               </p>
             </div>

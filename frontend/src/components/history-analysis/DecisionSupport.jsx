@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Star, TrendingUp, Zap, Lightbulb } from "lucide-react";
-import { Card, CardContent } from "./ui/card";
-import { Button } from "./ui/button";
-import { computeKnee } from "../utils/knee";
+import { Card, CardContent } from "../ui/card.jsx";
+import { Button } from "../ui/button.jsx";
 
 const pick = (arr, key, dir) =>
   arr.reduce((best, sol) =>
@@ -115,7 +114,7 @@ const DecisionSupport = ({ paretoFront, kneePoint }) => {
   const bestAccuracy = pick(paretoFront, "f1_score", 1);
   const bestSpeed = pick(paretoFront, "latency", -1);
   const bestInterpretable = pick(paretoFront, "interpretability", 1);
-  const knee = kneePoint || computeKnee(paretoFront);
+  const knee = kneePoint;
 
   return (
     <section>

@@ -1,5 +1,12 @@
 import Plot from "react-plotly.js";
-import { fmt } from "../utils/formatters";
+import { fmt } from "@/utils/formatters.js";
+import {
+  COLORS,
+  AXIS_STYLE,
+  CHART_LAYOUT,
+  LEGEND_STYLE,
+  CHART_CONFIG,
+} from "@/utils/chartTheme.js";
 
 function buildCustomData(solutions) {
   return solutions.map((s) => [
@@ -8,13 +15,6 @@ function buildCustomData(solutions) {
     fmt.scaler(s.scaler),
   ]);
 }
-
-// DARK MODE STYLING
-const AXIS_STYLE = {
-  gridcolor: "#1e293b", // Dark grid lines
-  zerolinecolor: "#1e293b",
-  tickfont: { size: 10, color: "#64748b" },
-};
 
 const ParetoFront2D = ({
   allSolutions = [],
@@ -26,11 +26,7 @@ const ParetoFront2D = ({
   xScale = 1,
 }) => {
   if (allSolutions.length === 0 && paretoFront.length === 0) {
-    return (
-      <div className="flex h-64 items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
-        No solution data available.
-      </div>
-    );
+    return <div className="chart-empty h-64">No solution data available.</div>;
   }
 
   const xVal = (s) => (s[xKey] ?? 0) * xScale;
@@ -56,11 +52,7 @@ const ParetoFront2D = ({
       y: allSolutions.map(yVal),
       customdata: buildCustomData(allSolutions),
       hovertemplate: hoverTpl,
-      marker: {
-        size: 6,
-        color: "rgba(148, 163, 184, 0.35)", // Muted slate
-        line: { width: 0 },
-      },
+      marker: { size: 6, color: COLORS.dominatedSolution, line: { width: 0 } },
     },
     {
       type: "scatter",
@@ -72,51 +64,35 @@ const ParetoFront2D = ({
       hovertemplate: hoverTpl,
       marker: {
         size: 10,
-        color: "#f97316", // Bright orange
+        color: COLORS.primary,
         symbol: "diamond",
-        line: { color: "#ea580c", width: 1 },
+        line: { color: COLORS.primaryDark, width: 1 },
         opacity: 0.95,
       },
-      line: { color: "#f97316", width: 1.5, dash: "dot" },
+      line: { color: COLORS.primary, width: 1.5, dash: "dot" },
     },
   ];
 
   const layout = {
-    autosize: true,
+    ...CHART_LAYOUT,
     margin: { l: 60, r: 20, t: 20, b: 55 },
-    paper_bgcolor: "rgba(0,0,0,0)", // Transparent background
-    plot_bgcolor: "rgba(0,0,0,0)", // Transparent background
     showlegend: true,
-    legend: {
-      x: 0.01,
-      y: 0.01,
-      bgcolor: "rgba(2, 6, 23, 0.8)", // Dark translucent legend
-      bordercolor: "#1e293b",
-      borderwidth: 1,
-      font: { size: 11, color: "#cbd5e1" },
-    },
+    legend: { x: 0.01, y: 0.01, ...LEGEND_STYLE },
     xaxis: {
       ...AXIS_STYLE,
-      title: { text: xLabel, font: { size: 12, color: "#94a3b8" } },
+      title: { text: xLabel, font: { size: 12, color: COLORS.slate400 } },
     },
     yaxis: {
       ...AXIS_STYLE,
-      title: { text: yLabel, font: { size: 12, color: "#94a3b8" } },
+      title: { text: yLabel, font: { size: 12, color: COLORS.slate400 } },
     },
-  };
-
-  const config = {
-    responsive: true,
-    displayModeBar: true,
-    modeBarButtonsToRemove: ["toImage", "sendDataToCloud"],
-    displaylogo: false,
   };
 
   return (
     <Plot
       data={data}
       layout={layout}
-      config={config}
+      config={CHART_CONFIG}
       useResizeHandler
       style={{ width: "100%", height: "360px" }}
     />

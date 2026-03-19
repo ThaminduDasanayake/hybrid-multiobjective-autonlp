@@ -2,7 +2,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
 import HistoryAnalysis from "./pages/HistoryAnalysis";
 import RunAutoML from "./pages/RunAutoML";
-import ThesisDefense from "./pages/ThesisDefense";
+import Experiments from "./pages/Experiments.jsx";
 
 const App = () => {
   return (
@@ -11,7 +11,7 @@ const App = () => {
         <Route path="/" element={<Layout />}>
           <Route index element={<RunAutoML />} />
           <Route path="history" element={<HistoryAnalysis />} />
-          <Route path="ablations" element={<ThesisDefense />} />
+          <Route path="experiments" element={<Experiments />} />
         </Route>
       </Routes>
     </BrowserRouter>

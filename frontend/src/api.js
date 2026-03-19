@@ -51,7 +51,15 @@ async function _request(path, options = {}) {
     let message = `HTTP ${res.status}`;
     try {
       const body = await res.json();
-      message = body?.detail ?? JSON.stringify(body);
+      const detail = body?.detail;
+      if (typeof detail === "string") {
+        message = detail;
+      } else if (Array.isArray(detail)) {
+        // Pydantic validation errors: [{ msg, loc, type }, ...]
+        message = detail.map((e) => e.msg ?? JSON.stringify(e)).join("; ");
+      } else {
+        message = JSON.stringify(body);
+      }
     } catch {
       message = await res.text().catch(() => message);
     }
@@ -124,12 +132,22 @@ export function getAblations() {
 /**
  * Queue an ablation study run (fire-and-forget, server returns HTTP 202).
  *
- * @param {{ mode: string, disable_bo: boolean, dataset: string }} config
- * @returns {Promise<{ status: string, mode: string, dataset: string, disable_bo: boolean }>}
+ * @param {{ mode: string, disable_bo: boolean, parent_job_id: string }} config
+ * @returns {Promise<{ status: string, mode: string, parent_job_id: string, disable_bo: boolean }>}
  */
 export function runAblation(config) {
   return _request("/api/ablations", {
     method: "POST",
     body: JSON.stringify(config),
   });
+}
+
+/**
+ * Fetch per-generation hypervolume history for convergence plotting.
+ *
+ * @param {string} jobId
+ * @returns {Promise<Array<{ generation: number, hypervolume: number }>>}
+ */
+export function getHypervolumeHistory(jobId) {
+  return _request(`/api/jobs/${jobId}/hypervolume-history`);
 }

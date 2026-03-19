@@ -6,7 +6,7 @@ import { DATASETS, DEFAULTS, DEMO_CONFIG } from "@/constants.js";
 import { Button } from "@/components/ui/button.jsx";
 import { Card, CardContent } from "@/components/ui/card.jsx";
 import { Label } from "@/components/ui/label.jsx";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select.jsx";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select.jsx";
 import SliderField from "./SliderField.jsx";
 
 const ConfigForm = ({ onJobStarted }) => {
@@ -69,7 +69,7 @@ const ConfigForm = ({ onJobStarted }) => {
               hint="How many documents are used to train and evaluate each pipeline."
               value={config.max_samples}
               min={100}
-              max={5000}
+              max={10000}
               step={100}
               onChange={setNum("max_samples")}
             />
@@ -93,9 +93,9 @@ const ConfigForm = ({ onJobStarted }) => {
             />
             <SliderField
               label="BO Calls"
-              hint="Bayesian optimisation evaluations per top candidate. Set 0 to disable BO."
+              hint="Bayesian optimisation evaluations per top candidate."
               value={config.bo_calls}
-              min={0}
+              min={10}
               max={50}
               step={5}
               onChange={setNum("bo_calls")}

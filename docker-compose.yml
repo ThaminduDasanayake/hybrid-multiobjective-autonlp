@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - CORS_ORIGINS=http://localhost:8000
+    volumes:
+      # Persist ML experiment data across container restarts.
+      - ./backend/jobs:/app/jobs
+      - ./backend/logs:/app/logs
+      - ./backend/results:/app/results
+      # Cache downloaded datasets so they aren't re-fetched on restart.
+      - ./backend/data:/app/data
+    restart: unless-stopped
