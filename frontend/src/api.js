@@ -42,12 +42,12 @@ export function streamUrl(jobId) {
  */
 async function _request(path, options = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
     headers: {
       "Content-Type": "application/json",
       "ngrok-skip-browser-warning": "true",
       ...options.headers,
     },
-    ...options,
   });
 
   if (!res.ok) {
