@@ -16,9 +16,9 @@ const ParetoHeatmap = ({ paretoFront = [] }) => {
 
   const sorted = [...paretoFront].sort((a, b) => b.f1_score - a.f1_score);
 
-  const f1Raw = sorted.map((s) => s.f1_score);
-  const latRaw = sorted.map((s) => (s.latency ?? 0) * 1000);
-  const intRaw = sorted.map((s) => s.interpretability);
+  const f1Raw = sorted.map((s) => Number(s.f1_score ?? 0));
+  const latRaw = sorted.map((s) => Number(s.latency ?? 0) * 1000);
+  const intRaw = sorted.map((s) => Number(s.interpretability ?? 0));
 
   const f1Norm = normalize(f1Raw);
   const latNorm = normalize(latRaw).map((v) => 1 - v);
@@ -36,7 +36,7 @@ const ParetoHeatmap = ({ paretoFront = [] }) => {
       annotations.push({
         x: ci,
         y: ri,
-        text: val.toFixed(3),
+        text: Number.isFinite(val) ? val.toFixed(3) : "0.000",
         showarrow: false,
         font: { size: 11, color: "#f8fafc" },
         xref: "x",

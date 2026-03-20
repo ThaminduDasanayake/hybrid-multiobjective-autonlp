@@ -93,7 +93,7 @@ const ConfigForm = ({ onJobStarted }) => {
             />
             <SliderField
               label="BO Calls"
-              hint="Bayesian optimisation evaluations per top candidate."
+              hint="Bayesian optimization evaluations per top candidate."
               value={config.bo_calls}
               min={10}
               max={50}

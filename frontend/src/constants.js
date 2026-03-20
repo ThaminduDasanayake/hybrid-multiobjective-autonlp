@@ -19,7 +19,7 @@ export const NAV_ITEMS = [
     to: "/experiments",
     icon: GraduationCap,
     label: "Experiments",
-    description: "Presentation mode",
+    description: "Ablation studies & comparisons",
   },
 ];
 

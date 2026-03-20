@@ -11,8 +11,8 @@ const RunAutoML = () => {
         <h1 className="text-2xl font-bold text-foreground">Run AutoML</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {activeJobId
-            ? "Live progress for the active optimisation run."
-            : "Configure and launch a new multi-objective optimisation run."}
+            ? "Live progress for the active optimization run."
+            : "Configure and launch a new multi-objective optimization run."}
         </p>
       </div>
 

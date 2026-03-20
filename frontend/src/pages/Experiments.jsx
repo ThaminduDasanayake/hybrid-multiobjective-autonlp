@@ -42,7 +42,10 @@ const Experiments = () => {
 
   // Derivation chain: URL → localStorage → newest job
   // Each candidate is validated against the current jobMap to avoid stale IDs.
-  const completedIds = Object.keys(jobMap);
+  const completedEntries = Object.entries(jobMap).filter(
+    ([, job]) => job?.status === "completed",
+  );
+  const completedIds = completedEntries.map(([id]) => id);
   const lastSaved = localStorage.getItem("t_autonlp_last_ablation_job");
   const completedSet = new Set(completedIds);
   const selectedJobId =
@@ -174,9 +177,9 @@ const Experiments = () => {
         ) : (
           <DropdownSelector
             label="Select a completed run"
-            options={completedIds.map((id) => ({
+            options={completedEntries.map(([id, job]) => ({
               value: id,
-              label: `${id} — ${fmt.date(jobMap[id]?.start_time)}`,
+              label: `${id} — ${fmt.date(job?.start_time)}`,
             }))}
             value={selectedJobId}
             onChange={(newId) => setSearchParams({ job: newId })}
@@ -245,7 +248,7 @@ const Experiments = () => {
               },
               {
                 label: "GA-Only — Random Hyperparams",
-                sub: "Bayesian optimisation disabled",
+                sub: "Bayesian optimization disabled",
                 even: true,
                 cells: [
                   { value: f4(gaOnly?.best_f1) },

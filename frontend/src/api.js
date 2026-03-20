@@ -70,7 +70,7 @@ async function _request(path, options = {}) {
 }
 
 /**
- * Start a new AutoML optimisation job.
+ * Start a new AutoML optimization job.
  *
  * @param {{
  *   dataset_name: string,

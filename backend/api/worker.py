@@ -312,7 +312,7 @@ def run_ablation(
         mode:             DEAP optimization mode (single_f1 / multi_2d / multi_3d).
         parent_job_id:    ID of the parent job whose config this ablation inherits.
         dataset:          Dataset identifier (resolved from parent job config).
-        disable_bo:       If True, skip Bayesian Optimisation (GA-only ablation).
+        disable_bo:       If True, skip Bayesian Optimization (GA-only ablation).
         max_samples:      Maximum training samples.
         population_size:  GA population size.
         n_generations:    Number of GA generations.
@@ -348,66 +348,86 @@ def run_ablation(
             f"dataset={dataset}, disable_bo={disable_bo}"
         )
 
-        weights = OPTIMIZATION_MODES.get(mode, [1.0, -1.0, 1.0])
-
-        data_dir = str(Path(backend_root_str) / "data")
-        data_loader = DataLoader(cache_dir=data_dir)
-        X_train, y_train = data_loader.load_dataset(
-            dataset, subset="train", max_samples=max_samples
-        )
-        logger.info(f"Loaded {len(X_train)} samples for {dataset}")
-
-        automl = HybridAutoML(
-            X_train=X_train,
-            y_train=y_train,
-            population_size=population_size,
-            n_generations=n_generations,
-            bo_calls=0 if disable_bo else bo_calls,
-            random_state=seed,
-            optimization_mode=mode,
-            disable_bo=disable_bo,
-        )
-
-        start = time.time()
-        results = automl.run()
-        elapsed = time.time() - start
-
-        analyzer = ParetoAnalyzer()
-        raw = analyzer.compute_metrics(results.get("all_solutions", []))
-        metrics = _format_metrics(raw)
-        # Ablation results omit knee_point (not needed for batch study comparisons).
-        metrics.pop("knee_point", None)
-
+        # Deterministic output path — shared with server.py idempotency check.
         output_dir = Path(backend_root_str) / "results" / "ablations"
         output_dir.mkdir(parents=True, exist_ok=True)
-
         name_parts = ["ablation", mode]
         if disable_bo:
             name_parts.append("nobo")
         name_parts.append(parent_job_id)
         output_file = output_dir / f"{'_'.join(name_parts)}.json"
 
-        payload = {
-            "mode": mode,
-            "weights": weights,
-            "dataset": dataset,
-            "parent_job_id": parent_job_id,
-            "disable_bo": disable_bo,
-            "config": {
-                "pop_size": population_size,
-                "generations": n_generations,
-                "bo_calls": 0 if disable_bo else bo_calls,
-                "max_samples": max_samples,
-                "seed": seed,
-            },
-            "metrics": metrics,
-            "runtime_seconds": elapsed,
-            "results": to_python_type(results),
-        }
+        try:
+            weights = OPTIMIZATION_MODES.get(mode, [1.0, -1.0, 1.0])
 
-        tmp_file = output_file.with_suffix(f"{output_file.suffix}.tmp")
-        with open(tmp_file, "w") as f:
-            json.dump(to_python_type(payload), f, indent=2, allow_nan=False)
-        tmp_file.replace(output_file)
+            data_dir = str(Path(backend_root_str) / "data")
+            data_loader = DataLoader(cache_dir=data_dir)
+            X_train, y_train = data_loader.load_dataset(
+                dataset, subset="train", max_samples=max_samples
+            )
+            logger.info(f"Loaded {len(X_train)} samples for {dataset}")
 
-        logger.info(f"Ablation saved → {output_file}")
+            automl = HybridAutoML(
+                X_train=X_train,
+                y_train=y_train,
+                population_size=population_size,
+                n_generations=n_generations,
+                bo_calls=0 if disable_bo else bo_calls,
+                random_state=seed,
+                optimization_mode=mode,
+                disable_bo=disable_bo,
+            )
+
+            start = time.time()
+            results = automl.run()
+            elapsed = time.time() - start
+
+            analyzer = ParetoAnalyzer()
+            raw = analyzer.compute_metrics(results.get("all_solutions", []))
+            metrics = _format_metrics(raw)
+            # Ablation results omit knee_point (not needed for batch study comparisons).
+            metrics.pop("knee_point", None)
+
+            payload = {
+                "mode": mode,
+                "weights": weights,
+                "dataset": dataset,
+                "parent_job_id": parent_job_id,
+                "disable_bo": disable_bo,
+                "status": "completed",
+                "config": {
+                    "pop_size": population_size,
+                    "generations": n_generations,
+                    "bo_calls": 0 if disable_bo else bo_calls,
+                    "max_samples": max_samples,
+                    "seed": seed,
+                },
+                "metrics": metrics,
+                "runtime_seconds": elapsed,
+                "results": to_python_type(results),
+            }
+
+            tmp_file = output_file.with_suffix(f"{output_file.suffix}.tmp")
+            with open(tmp_file, "w") as f:
+                json.dump(to_python_type(payload), f, indent=2, allow_nan=False)
+            tmp_file.replace(output_file)
+
+            logger.info(f"Ablation saved → {output_file}")
+
+        except Exception as e:
+            logger.error(f"Ablation failed: {e}", exc_info=True)
+            error_payload = {
+                "mode": mode,
+                "dataset": dataset,
+                "parent_job_id": parent_job_id,
+                "disable_bo": disable_bo,
+                "status": "failed",
+                "error": str(e),
+                "metrics": {},
+                "runtime_seconds": None,
+            }
+            try:
+                with open(output_file, "w") as f:
+                    json.dump(error_payload, f, indent=2)
+            except Exception:
+                logger.error(f"Failed to write error artifact for {output_file}")

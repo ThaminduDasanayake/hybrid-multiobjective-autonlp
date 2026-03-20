@@ -11,7 +11,7 @@ code/
 │   ├── automl/        # GA engine, BO, evaluator, Pareto logic
 │   └── utils/         # Data loading, evaluation, interpretability
 ├── frontend/          # React + Vite SPA (shadcn/ui, Tailwind CSS v4, Plotly)
-│   ├── src/pages/     # RunAutoML, HistoryAnalysis, Experiments (Experiments)
+│   ├── src/pages/     # RunAutoML, HistoryAnalysis, Experiments
 │   ├── src/components/
 │   │   ├── history-analysis/  # Charts & tables for run analysis
 │   │   ├── experiments/       # Ablation comparison components
@@ -83,7 +83,7 @@ The React SPA is served statically by FastAPI at `http://localhost:8000`.
 
 | Page               | Route          | Description                                                                                                                                                   |
 | ------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Run AutoML         | `/`            | Configure and launch a new multi-objective optimisation run with live SSE tracking                                                                            |
+| Run AutoML         | `/`            | Configure and launch a new multi-objective optimization run with live SSE tracking                                                                            |
 | History & Analysis | `/history`     | Explore completed runs: 3D/2D Pareto fronts, parallel coordinates, convergence charts, model & objective distributions, decision support, and solution tables |
 | Experiments        | `/experiments` | Ablation study comparison tables, grouped bar charts, and buttons to trigger missing ablation runs                                                            |
 
