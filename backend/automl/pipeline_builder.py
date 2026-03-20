@@ -51,7 +51,7 @@ def build_pipeline(
     """
     steps = []
 
-    # ── 1. Vectorizer ─────────────────────────────────────────────────
+    # 1. Vectorizer
     # Sanitize ngram_range: handle numpy strings and ensure tuple of ints
     if isinstance(ngram_range, (str, np.str_)):
         min_n, max_n = map(int, str(ngram_range).split("-"))
@@ -82,7 +82,7 @@ def build_pipeline(
         raise ValueError(f"Unknown vectorizer type: {vectorizer_type}")
     steps.append(("vectorizer", vectorizer))
 
-    # ── 2. Scaler ─────────────────────────────────────────────────────
+    # 2. Scaler
     if scaler_type == "standard":
         steps.append(("scaler", StandardScaler(with_mean=False)))
     elif scaler_type == "maxabs":
@@ -90,7 +90,7 @@ def build_pipeline(
     elif scaler_type == "robust":
         steps.append(("scaler", RobustScaler(with_centering=False)))
 
-    # ── 3. Dimensionality Reduction ───────────────────────────────────
+    # 3. Dimensionality Reduction
     if dim_reduction_type == "pca":
         n_components = params.get("pca_n_components", 50)
         steps.append(("dim_reduction", TruncatedSVD(n_components=n_components)))
@@ -98,7 +98,7 @@ def build_pipeline(
         k = int(params.get("k_best_k", 100))
         steps.append(("dim_reduction", SelectKBest(f_classif, k=k)))
 
-    # ── 4. Classifier ─────────────────────────────────────────────────
+    # 4. Classifier
     if model_type == "logistic":
         model = LogisticRegression(
             C=params.get("C", 1.0),
@@ -111,10 +111,12 @@ def build_pipeline(
     elif model_type == "naive_bayes":
         model = MultinomialNB(alpha=params.get("alpha", 1.0))
     elif model_type == "svm":
-        dual = "auto" if scaler_type == "standard" else True
+        penalty = params.get("penalty", "l2")
+        # l1 penalty requires dual=False in LinearSVC
+        dual = False if penalty == "l1" else ("auto" if scaler_type == "standard" else True)
         model = LinearSVC(
             C=params.get("C", 1.0),
-            penalty=params.get("penalty", "l2"),
+            penalty=penalty,
             dual=dual,
             max_iter=params.get("max_iter", 1500),
             random_state=random_state,

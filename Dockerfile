@@ -18,18 +18,21 @@ RUN npm run build
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2 — FastAPI backend + bundled React SPA
 # ─────────────────────────────────────────────────────────────────────────────
-FROM python:3.12-slim AS backend
+FROM python:3.13-slim AS backend
 
 # Install uv (Astral's fast Python package manager).
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# Copy backend source.
-COPY backend/ ./
+# Copy dependency manifests first for layer caching.
+COPY backend/pyproject.toml backend/uv.lock ./
 
 # Install Python dependencies from the lockfile (no dev extras).
 RUN uv sync --no-dev --frozen
+
+# Copy backend source.
+COPY backend/ ./
 
 # Create runtime directories that the app writes to at run time.
 # Mount these as Docker volumes in production to persist data across restarts.

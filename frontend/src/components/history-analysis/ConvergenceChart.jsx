@@ -1,10 +1,10 @@
 import Plot from "react-plotly.js";
-import { PRIMARY_COLOR } from "@/constants.js";
+import { COLORS, AXIS_STYLE, CHART_LAYOUT, CHART_CONFIG } from "@/utils/chartTheme.js";
 
 const ConvergenceChart = ({ searchHistory = [] }) => {
   if (searchHistory.length === 0) {
     return (
-      <div className="flex h-64 items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
+      <div className="chart-empty h-64">
         No search history data available.
       </div>
     );
@@ -23,10 +23,9 @@ const ConvergenceChart = ({ searchHistory = [] }) => {
     .sort((a, b) => a - b);
   const maxF1 = generations.map((g) => genMap[g]);
 
-  // --- NEW: Calculate exact bounds to prevent the axis from dropping to 0 ---
   const minScore = Math.min(...maxF1);
   const maxScore = Math.max(...maxF1);
-  const yPadding = (maxScore - minScore) * 0.1 || 0.01; // Adds a 10% visual padding
+  const yPadding = (maxScore - minScore) * 0.1 || 0.01;
 
   const data = [
     {
@@ -35,52 +34,37 @@ const ConvergenceChart = ({ searchHistory = [] }) => {
       name: "Max F1 per Generation",
       x: generations,
       y: maxF1,
-      line: {
-        color: PRIMARY_COLOR,
-        width: 2,
-        shape: "spline",
-      },
+      line: { color: COLORS.primary, width: 2, shape: "spline" },
       fill: "tozeroy",
-      fillcolor: "rgba(249, 115, 22, 0.1)", // Faint transparent orange fill
-      marker: { size: 7, color: PRIMARY_COLOR, symbol: "circle" },
+      fillcolor: COLORS.orangeFill,
+      marker: { size: 7, color: COLORS.primary, symbol: "circle" },
       hovertemplate: "Generation %{x}<br>Max F1: %{y:.4f}<extra></extra>",
     },
   ];
 
   const layout = {
-    autosize: true,
+    ...CHART_LAYOUT,
     margin: { l: 60, r: 20, t: 20, b: 55 },
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
     showlegend: false,
     xaxis: {
-      title: { text: "Generation", font: { size: 12, color: "#94a3b8" } },
-      gridcolor: "#1e293b",
+      ...AXIS_STYLE,
+      title: { text: "Generation", font: { size: 12, color: COLORS.slate400 } },
       zeroline: false,
-      tickfont: { size: 10, color: "#64748b" },
       dtick: 1,
     },
     yaxis: {
-      title: { text: "Max F1 Score ↑", font: { size: 12, color: "#94a3b8" } },
-      gridcolor: "#1e293b",
+      ...AXIS_STYLE,
+      title: { text: "Max F1 Score ↑", font: { size: 12, color: COLORS.slate400 } },
       zeroline: false,
-      tickfont: { size: 10, color: "#64748b" },
       range: [minScore - yPadding, maxScore + yPadding],
     },
-  };
-
-  const config = {
-    responsive: true,
-    displayModeBar: true,
-    modeBarButtonsToRemove: ["toImage", "sendDataToCloud"],
-    displaylogo: false,
   };
 
   return (
     <Plot
       data={data}
       layout={layout}
-      config={config}
+      config={CHART_CONFIG}
       useResizeHandler
       style={{ width: "100%", height: "360px" }}
     />

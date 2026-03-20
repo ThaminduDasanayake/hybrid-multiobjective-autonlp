@@ -112,7 +112,7 @@ class BayesianOptimizer:
             n_samples,
         )
 
-        # ── GA-only ablation: skip BO, sample one random config ──────────
+        # GA-only ablation: skip BO, sample one random config
         if self.disable_bo:
             return self._random_sample_evaluate(
                 space,
@@ -183,6 +183,7 @@ class BayesianOptimizer:
             objective,
             space,
             n_calls=self.n_calls,
+            n_initial_points=min(10, self.n_calls),
             random_state=self.random_state,
             n_jobs=1,  # Sequential for stability
             verbose=False,
@@ -238,7 +239,12 @@ class BayesianOptimizer:
         # Sample one random point from the search space
         random_params = {}
         for dim in space:
-            random_params[dim.name] = dim.rvs(random_state=self._rng)[0]
+            val = dim.rvs(random_state=self._rng)[0]
+            # Categorical dimensions return numpy types (e.g. numpy.str_);
+            # sklearn parameter validators require native Python types.
+            if hasattr(val, "item"):
+                val = val.item()
+            random_params[dim.name] = val
 
         profile = self.dataset_profile(X_train)
         score = 0.0

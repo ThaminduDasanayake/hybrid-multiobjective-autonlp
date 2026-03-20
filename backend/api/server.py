@@ -23,10 +23,13 @@ if _BACKEND_ROOT not in sys.path:
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.job_manager import JobManager, _executor
+
+# Track in-flight ablation tasks so we can reject duplicate submissions.
+_running_ablations: set[str] = set()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,7 +37,7 @@ async def lifespan(app: FastAPI):
     yield
     # cancel_futures=True cancels queued (not yet running) futures.
     # Running futures (i.e. active AutoML jobs) are left to finish on their own
-    # because we don't want to abruptly kill a user's in-progress optimisation.
+    # because we don't want to abruptly kill a user's in-progress optimization.
     _executor.shutdown(wait=False, cancel_futures=True)
 
 
@@ -68,7 +71,7 @@ class JobConfig(BaseModel):
     max_samples: int = Field(default=2000, ge=100, description="Max training samples")
     population_size: int = Field(default=20, ge=5, description="GA population size")
     n_generations: int = Field(default=10, ge=1, description="Number of GA generations")
-    bo_calls: int = Field(default=15, ge=0, description="Bayesian optimisation calls")
+    bo_calls: int = Field(default=15, ge=10, description="Bayesian optimization calls")
     optimization_mode: str = Field(
         default="multi_3d",
         description="One of: single_f1, multi_2d, multi_3d",
@@ -138,6 +141,66 @@ def get_job_result(job_id: str):
     return result
 
 
+@app.get("/api/jobs/{job_id}/hypervolume-history")
+def get_hypervolume_history(job_id: str):
+    """Return hypervolume indicator at each GA generation for convergence plotting.
+
+    Iterates over the job's search_history, building a cumulative solution set
+    per generation, computing the Pareto front and its hypervolume at each step.
+    Global objective bounds (from all solutions) are used so hypervolume values
+    are consistently normalised across generations.
+    """
+    result = _job_manager.get_result(job_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    search_history = result.get("search_history", [])
+    if not search_history:
+        return []
+
+    from collections import defaultdict
+
+    import numpy as np
+
+    from automl.pareto import get_pareto_front
+    from utils.evaluation import ParetoAnalyzer
+
+    # Group entries by generation
+    by_gen: dict[int, list[dict]] = defaultdict(list)
+    for entry in search_history:
+        if entry.get("status") != "success":
+            continue
+        gen = entry.get("generation")
+        if gen is not None:
+            by_gen[gen].append(entry)
+
+    if not by_gen:
+        return []
+
+    # Compute global bounds across ALL solutions for consistent normalisation
+    all_f1 = [e["f1_score"] for e in search_history if e.get("status") == "success"]
+    all_lat = [e["latency"] for e in search_history if e.get("status") == "success"]
+    all_interp = [e["interpretability"] for e in search_history if e.get("status") == "success"]
+    bounds = {
+        "f1_score": (float(np.min(all_f1)), float(np.max(all_f1))),
+        "latency": (float(np.min(all_lat)), float(np.max(all_lat))),
+        "interpretability": (float(np.min(all_interp)), float(np.max(all_interp))),
+    }
+
+    # Build cumulative solution set and compute HV at each generation
+    generations = sorted(by_gen.keys())
+    cumulative = []
+    hv_history = []
+
+    for gen in generations:
+        cumulative.extend(by_gen[gen])
+        front = get_pareto_front(cumulative)
+        hv = ParetoAnalyzer.calculate_hypervolume(front, bounds=bounds)
+        hv_history.append({"generation": gen, "hypervolume": round(hv, 6)})
+
+    return hv_history
+
+
 @app.delete("/api/jobs/{job_id}", status_code=200)
 def terminate_job(job_id: str):
     """Terminate a running or queued job."""
@@ -176,13 +239,8 @@ class AblationConfig(BaseModel):
         default="multi_3d",
         description="Optimization mode: single_f1 | multi_2d | multi_3d",
     )
-    disable_bo: bool = Field(default=False, description="Disable Bayesian Optimisation")
-    dataset: str = Field(default="ag_news", description="Dataset identifier")
-    max_samples: int = Field(default=2000, ge=100, description="Max training samples")
-    population_size: int = Field(default=20, ge=5, description="GA population size")
-    n_generations: int = Field(default=10, ge=1, description="Number of GA generations")
-    bo_calls: int = Field(default=15, ge=0, description="Bayesian optimisation calls")
-    seed: int = Field(default=42, ge=0, description="Random seed")
+    disable_bo: bool = Field(default=False, description="Disable Bayesian optimization")
+    parent_job_id: str = Field(..., description="Job ID whose config to inherit")
 
 
 # ---------------------------------------------------------------------- ablation routes
@@ -193,9 +251,9 @@ def get_ablations():
     """
     Return metrics from all completed ablation studies found in results/ablations/.
 
-    Each entry in the returned dict is keyed by ``{mode}_{dataset}`` (or
-    ``ga_only_{dataset}`` when disable_bo=True) so the frontend can look up
-    a specific combination cheaply.
+    Each entry in the returned dict is keyed by ``{mode}_{parent_job_id}``
+    (or ``ga_only_{parent_job_id}`` when disable_bo=True) so the frontend
+    can look up ablation results scoped to a specific parent run.
     """
     ablations_dir = Path(_BACKEND_ROOT) / "results" / "ablations"
     result: dict = {}
@@ -210,17 +268,25 @@ def get_ablations():
 
             mode = data.get("mode", "unknown")
             dataset = data.get("dataset", "unknown")
+            parent_job_id = data.get("parent_job_id")
             # disable_bo may be at the top level (API worker) or nested inside
             # config (run_ablations.py CLI).
             disable_bo = data.get(
                 "disable_bo", data.get("config", {}).get("disable_bo", False)
             )
 
-            key = f"{'ga_only' if disable_bo else mode}_{dataset}"
+            if parent_job_id:
+                key = f"{'ga_only' if disable_bo else mode}_{parent_job_id}"
+            else:
+                # Legacy: old files keyed by dataset (won't match new frontend lookups)
+                key = f"{'ga_only' if disable_bo else mode}_{dataset}"
+
             result[key] = {
                 "mode": mode,
                 "dataset": dataset,
+                "parent_job_id": parent_job_id,
                 "disable_bo": disable_bo,
+                "status": data.get("status", "completed"),
                 "metrics": data.get("metrics", {}),
                 "runtime_seconds": data.get("runtime_seconds"),
             }
@@ -231,10 +297,26 @@ def get_ablations():
     return result
 
 
+def _ablation_key(mode: str, disable_bo: bool, parent_job_id: str) -> str:
+    """Deterministic key matching the worker's output filename convention."""
+    parts = ["ablation", mode]
+    if disable_bo:
+        parts.append("nobo")
+    parts.append(parent_job_id)
+    return "_".join(parts)
+
+
 @app.post("/api/ablations", status_code=202)
 def start_ablation(config: AblationConfig):
     """
     Submit an ablation study to the ProcessPoolExecutor.
+
+    The ablation inherits its full configuration (dataset, samples, population
+    size, etc.) from the parent job's saved config.json.
+
+    Idempotent: if a completed result already exists, returns 200 instead of
+    re-submitting.  If the same ablation is already in-flight, returns 202
+    with status "already_queued".
 
     Returns immediately (HTTP 202 Accepted).  The worker saves its result to
     results/ablations/ when finished.  Call GET /api/ablations to check for
@@ -242,22 +324,73 @@ def start_ablation(config: AblationConfig):
     """
     from api.worker import run_ablation
 
-    _executor.submit(
+    config_path = Path(_BACKEND_ROOT) / "jobs" / config.parent_job_id / "config.json"
+    if not config_path.is_file():
+        raise HTTPException(status_code=404, detail="Parent job not found")
+
+    key = _ablation_key(config.mode, config.disable_bo, config.parent_job_id)
+
+    # Check for an existing result file.
+    ablations_dir = Path(_BACKEND_ROOT) / "results" / "ablations"
+    result_file = ablations_dir / f"{key}.json"
+    if result_file.is_file():
+        try:
+            with open(result_file) as f:
+                existing = json.load(f)
+            # Only short-circuit if the previous run completed successfully.
+            # Failed results are allowed to be re-submitted (overwritten).
+            if existing.get("status", "completed") != "failed":
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "status": "completed",
+                        "mode": config.mode,
+                        "parent_job_id": config.parent_job_id,
+                        "disable_bo": config.disable_bo,
+                    },
+                )
+        except Exception:
+            pass  # Malformed file — allow re-submission.
+
+    # Reject if this exact ablation is already in-flight.
+    if key in _running_ablations:
+        return {
+            "status": "already_queued",
+            "mode": config.mode,
+            "parent_job_id": config.parent_job_id,
+            "disable_bo": config.disable_bo,
+        }
+
+    with open(config_path) as f:
+        parent = json.load(f)
+
+    _running_ablations.add(key)
+
+    def _on_done(_future):
+        try:
+            _running_ablations.discard(key)
+        except Exception:
+            pass
+
+    future = _executor.submit(
         run_ablation,
         config.mode,
-        config.dataset,
+        config.parent_job_id,
+        parent["dataset_name"],
         config.disable_bo,
-        config.max_samples,
-        config.population_size,
-        config.n_generations,
-        config.bo_calls,
-        config.seed,
+        parent.get("max_samples", 2000),
+        parent.get("population_size", 20),
+        parent.get("n_generations", 10),
+        parent.get("bo_calls", 15),
+        parent.get("seed", 42),
         _BACKEND_ROOT,
     )
+    future.add_done_callback(_on_done)
+
     return {
         "status": "queued",
         "mode": config.mode,
-        "dataset": config.dataset,
+        "parent_job_id": config.parent_job_id,
         "disable_bo": config.disable_bo,
     }
 

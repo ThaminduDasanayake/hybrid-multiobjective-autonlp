@@ -182,3 +182,19 @@
     letter-spacing: var(--tracking-normal);
   }
 }
+
+@layer components {
+  .chart-empty {
+    @apply flex items-center justify-center rounded-xl border border-border
+           bg-card text-sm text-muted-foreground;
+  }
+  .card-section {
+    @apply overflow-hidden rounded-xl border border-border bg-card p-2 shadow-sm;
+  }
+  .section-title {
+    @apply text-base font-semibold text-foreground;
+  }
+  .section-subtitle {
+    @apply text-xs text-muted-foreground;
+  }
+}

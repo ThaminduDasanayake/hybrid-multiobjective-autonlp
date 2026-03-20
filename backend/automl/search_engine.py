@@ -206,7 +206,7 @@ class EvolutionarySearch:
         return False
 
     def run(self, callback: Optional[Callable] = None):
-        # ── Resume from checkpoint if population was saved ────────────────
+        # Resume from checkpoint if population was saved
         checkpoint_state = self.result_store.load_checkpoint() or {}
         saved_genes = checkpoint_state.get("population")
         start_gen = int(checkpoint_state.get("completed_generations", 0))

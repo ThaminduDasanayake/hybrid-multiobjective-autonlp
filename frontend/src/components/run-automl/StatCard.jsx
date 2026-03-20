@@ -1,4 +1,4 @@
-import { Card, CardContent } from "./ui/card.jsx";
+import { Card, CardContent } from "../ui/card.jsx";
 
 /**
  * StatCard — live-run metric tile used in LiveTracker.

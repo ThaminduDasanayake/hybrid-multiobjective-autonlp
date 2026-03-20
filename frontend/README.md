@@ -22,7 +22,7 @@ src/
 ├── pages/
 │   ├── RunAutoML.jsx         # Job configuration and live progress tracking
 │   ├── HistoryAnalysis.jsx   # Full result view: metrics, charts, solutions table
-│   └── ThesisDefense.jsx     # Comparative ablation results view
+│   └── Experiments.jsx     # Comparative ablation results view
 ├── components/
 │   ├── run/
 │   │   ├── ConfigForm.jsx    # Dataset + hyperparameter form (Slider-based)
@@ -90,5 +90,5 @@ Select any completed job and view:
 - GA convergence chart
 - Full sortable solutions table
 
-### Thesis Defense (`/thesis`)
+### Experiments (`/experiments`)
 Side-by-side ablation comparison across algorithm variants.

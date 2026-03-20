@@ -2,13 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Loader2, RotateCcw, Square, Terminal } from "lucide-react";
 import { streamUrl } from "@/api.js";
 import { useCancelJob } from "@/hooks/useApi.js";
-import { Alert, AlertDescription } from "./ui/alert.jsx";
-import { Button } from "./ui/button.jsx";
-import { Progress } from "./ui/progress.jsx";
+import { Alert, AlertDescription } from "../ui/alert.jsx";
+import { Button } from "../ui/button.jsx";
+import { Progress } from "../ui/progress.jsx";
 import StatCard from "./StatCard.jsx";
 import StatusBadge from "./StatusBadge.jsx";
-
-const TERMINAL_STATES = new Set(["completed", "failed", "terminated"]);
+import { TERMINAL_STATES } from "@/constants.js";
 
 const LiveTracker = ({ jobId, onFinished }) => {
   const [progress, setProgress] = useState(0);
@@ -19,6 +18,7 @@ const LiveTracker = ({ jobId, onFinished }) => {
     total_generations: 0,
     best_f1: 0,
     best_latency_ms: 0,
+    best_interpretability: 0,
     cache_hit_rate: 0,
     total_evaluated: 0,
   });
@@ -58,6 +58,7 @@ const LiveTracker = ({ jobId, onFinished }) => {
         total_generations: status.total_generations ?? 0,
         best_f1: status.best_f1 ?? 0,
         best_latency_ms: status.best_latency_ms ?? 0,
+        best_interpretability: status.best_interpretability ?? 0,
         cache_hit_rate: status.cache_hit_rate ?? 0,
         total_evaluated: status.total_evaluated ?? 0,
       });
@@ -142,18 +143,23 @@ const LiveTracker = ({ jobId, onFinished }) => {
           dimmed={metrics.total_evaluated === 0}
         />
         <StatCard
-          label="Best F1"
+          label="Best F1 ↑"
           value={metrics.best_f1 > 0 ? metrics.best_f1.toFixed(4) : "—"}
           dimmed={metrics.best_f1 === 0}
         />
         <StatCard
-          label="Best Speed"
+          label="Best Latency ↓"
           value={metrics.best_latency_ms > 0 ? metrics.best_latency_ms.toFixed(2) : "—"}
           unit={metrics.best_latency_ms > 0 ? "ms" : undefined}
           dimmed={metrics.best_latency_ms === 0}
         />
+        <StatCard
+          label="Best Interpretability ↑"
+          value={metrics.best_interpretability > 0 ? metrics.best_interpretability.toFixed(4) : "—"}
+          dimmed={metrics.best_interpretability === 0}
+        />
       </div>
-      {/* ── Terminal window ─────────────────────────── */}
+      {/* Terminal window */}
       <div className="overflow-hidden rounded-xl border border-border">
         <div className="flex items-center gap-1.5 bg-muted px-4 py-2">
           <span className="h-3 w-3 rounded-full bg-destructive/60" />
@@ -194,7 +200,7 @@ const LiveTracker = ({ jobId, onFinished }) => {
         <Alert className="border-secondary/30 bg-secondary/10 text-secondary [&>svg]:text-secondary">
           <CheckCircle2 />
           <AlertDescription>
-            Optimisation complete — go to <strong>History &amp; Analysis</strong> to explore the
+            Optimization complete — go to <strong>History &amp; Analysis</strong> to explore the
             Pareto front.
           </AlertDescription>
         </Alert>
