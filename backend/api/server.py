@@ -31,6 +31,7 @@ from api.job_manager import JobManager, _executor
 # Track in-flight ablation tasks so we can reject duplicate submissions.
 _running_ablations: set[str] = set()
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Shut down the ProcessPoolExecutor gracefully when the server stops."""
@@ -49,7 +50,8 @@ app = FastAPI(
 )
 
 _CORS_ORIGINS: list[str] = os.getenv(
-    "CORS_ORIGINS", "http://localhost:5173,http://localhost:8000"
+    "CORS_ORIGINS",
+    "http://localhost:5173,https://t-autonlp.vercel.app",
 ).split(",")
 
 app.add_middleware(
@@ -180,7 +182,9 @@ def get_hypervolume_history(job_id: str):
     # Compute global bounds across ALL solutions for consistent normalisation
     all_f1 = [e["f1_score"] for e in search_history if e.get("status") == "success"]
     all_lat = [e["latency"] for e in search_history if e.get("status") == "success"]
-    all_interp = [e["interpretability"] for e in search_history if e.get("status") == "success"]
+    all_interp = [
+        e["interpretability"] for e in search_history if e.get("status") == "success"
+    ]
     bounds = {
         "f1_score": (float(np.min(all_f1)), float(np.max(all_f1))),
         "latency": (float(np.min(all_lat)), float(np.max(all_lat))),

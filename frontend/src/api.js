@@ -29,7 +29,7 @@ import { BASE_URL } from "@/constants.js";
  * @returns {string}
  */
 export function streamUrl(jobId) {
-  return `${BASE_URL}/api/jobs/${jobId}/stream`;
+  return `${BASE_URL}/api/jobs/${jobId}/stream?ngrok-skip-browser-warning=true`;
 }
 
 /**
@@ -42,7 +42,11 @@ export function streamUrl(jobId) {
  */
 async function _request(path, options = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...options.headers },
+    headers: {
+      "Content-Type": "application/json",
+      "ngrok-skip-browser-warning": "true",
+      ...options.headers,
+    },
     ...options,
   });
 
