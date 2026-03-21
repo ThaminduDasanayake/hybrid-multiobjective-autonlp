@@ -9,9 +9,8 @@ backend/data/
 backend/results/
 backend/.pytest_cache/
 
-# Frontend
-frontend/node_modules/
-frontend/dist/
+# Frontend (not used in Docker build)
+frontend/
 
 # Git / IDE
 .git/

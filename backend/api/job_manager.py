@@ -29,9 +29,9 @@ from utils.logger import get_logger
 logger = get_logger("job_manager")
 
 # One executor shared across all HTTP requests.
-# max_workers=2: enough to run one job while a second waits in the queue.
-# AutoML is extremely CPU-heavy — more workers would thrash the CPU.
-_executor = ProcessPoolExecutor(max_workers=2)
+# max_workers=1: sequential execution ensures each job gets full CPU resources,
+# producing fair and comparable runtime/latency metrics for ablation studies.
+_executor = ProcessPoolExecutor(max_workers=1)
 _futures: dict[str, Future] = {}
 
 # Absolute path to the backend root — passed to worker processes so they can
