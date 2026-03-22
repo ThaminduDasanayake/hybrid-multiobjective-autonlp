@@ -13,6 +13,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   cancelJob,
+  deleteJob,
   getAblations,
   getHypervolumeHistory,
   getJobResult,
@@ -124,6 +125,22 @@ export function useCancelJob() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (jobId) => cancelJob(jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+}
+
+/**
+ * Permanently deletes a completed job and its data.
+ * Invalidates the job list so the table updates immediately.
+ *
+ * @returns {import("@tanstack/react-query").UseMutationResult}
+ */
+export function useDeleteJob() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId) => deleteJob(jobId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },

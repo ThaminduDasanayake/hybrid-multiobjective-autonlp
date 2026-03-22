@@ -52,10 +52,7 @@ const ComparisonTable = ({ title, subtitle, headers = [], rows = [] }) => (
         </TableHeader>
         <TableBody>
           {rows.map((row, ri) => (
-            <TableRow
-              key={ri}
-              className={`last:border-0 ${row.even ? "bg-muted/20" : ""}`}
-            >
+            <TableRow key={ri} className={`last:border-0 ${row.even ? "bg-muted/20" : ""}`}>
               <TableCell className="px-4 py-3">
                 <p className="text-sm font-medium text-foreground">{row.label}</p>
                 {row.sub && <p className="text-xs text-muted-foreground">{row.sub}</p>}

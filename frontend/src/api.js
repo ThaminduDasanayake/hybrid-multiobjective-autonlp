@@ -125,6 +125,16 @@ export function cancelJob(jobId) {
 }
 
 /**
+ * Permanently delete a completed/failed/terminated job and its data.
+ *
+ * @param {string} jobId
+ * @returns {Promise<{ message: string }>}
+ */
+export function deleteJob(jobId) {
+  return _request(`/api/jobs/${jobId}/data`, { method: "DELETE" });
+}
+
+/**
  * Fetch metrics from all completed ablation studies.
  *
  * @returns {Promise<Record<string, object>>}

@@ -1,6 +1,12 @@
 import Plot from "react-plotly.js";
 import { fmt } from "@/utils/formatters.js";
-import { COLORS, AXIS_STYLE, CHART_LAYOUT, LEGEND_STYLE, CHART_CONFIG } from "@/utils/chartTheme.js";
+import {
+  COLORS,
+  AXIS_STYLE,
+  CHART_LAYOUT,
+  LEGEND_STYLE,
+  CHART_CONFIG,
+} from "@/utils/chartTheme.js";
 
 function buildCustomData(solutions) {
   return solutions.map((s) => [
@@ -44,11 +50,7 @@ const SCENE_AXIS = {
 
 const ParetoFront3D = ({ allSolutions = [], paretoFront = [] }) => {
   if (allSolutions.length === 0 && paretoFront.length === 0) {
-    return (
-      <div className="chart-empty h-96">
-        No solution data available for this run.
-      </div>
-    );
+    return <div className="chart-empty h-96">No solution data available for this run.</div>;
   }
 
   const data = [

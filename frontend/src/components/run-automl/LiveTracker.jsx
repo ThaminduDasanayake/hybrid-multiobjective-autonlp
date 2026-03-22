@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2, RotateCcw, Square, Terminal } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, MoveDown, MoveUp, RotateCcw, Square, Terminal } from "lucide-react";
 import { streamUrl } from "@/api.js";
 import { useCancelJob } from "@/hooks/useApi.js";
 import { Alert, AlertDescription } from "../ui/alert.jsx";
@@ -44,6 +44,7 @@ const LiveTracker = ({ jobId, onFinished }) => {
 
       if (payload.error) {
         setSseError(payload.error);
+        setJobStatus("failed");
         es.close();
         return;
       }
@@ -67,9 +68,12 @@ const LiveTracker = ({ jobId, onFinished }) => {
     };
 
     es.onerror = () => {
-      // EventSource fires onerror when the server closes the stream on a
-      // terminal state — expected, not an error.
       es.close();
+      setJobStatus((prev) => {
+        if (TERMINAL_STATES.has(prev)) return prev;
+        setSseError((e) => e ?? "Connection lost");
+        return "failed";
+      });
     };
 
     return () => es.close();
@@ -114,7 +118,7 @@ const LiveTracker = ({ jobId, onFinished }) => {
         </div>
       </div>
 
-      {/*Progress bar*/}
+      {/* Progress bar */}
       <div>
         <div className="mb-1.5 flex items-center justify-between text-xs text-muted-foreground">
           <span>Progress</span>
@@ -143,18 +147,18 @@ const LiveTracker = ({ jobId, onFinished }) => {
           dimmed={metrics.total_evaluated === 0}
         />
         <StatCard
-          label="Best F1 ↑"
+          label={<>Best F1 <MoveUp size={12} className="inline" /></>}
           value={metrics.best_f1 > 0 ? metrics.best_f1.toFixed(4) : "—"}
           dimmed={metrics.best_f1 === 0}
         />
         <StatCard
-          label="Best Latency ↓"
+          label={<>Best Latency <MoveDown size={12} className="inline" /></>}
           value={metrics.best_latency_ms > 0 ? metrics.best_latency_ms.toFixed(2) : "—"}
           unit={metrics.best_latency_ms > 0 ? "ms" : undefined}
           dimmed={metrics.best_latency_ms === 0}
         />
         <StatCard
-          label="Best Interpretability ↑"
+          label={<>Best Interpretability <MoveUp size={12} className="inline" /></>}
           value={metrics.best_interpretability > 0 ? metrics.best_interpretability.toFixed(4) : "—"}
           dimmed={metrics.best_interpretability === 0}
         />

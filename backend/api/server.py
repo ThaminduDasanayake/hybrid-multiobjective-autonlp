@@ -214,6 +214,17 @@ def terminate_job(job_id: str):
     return {"message": "Job terminated"}
 
 
+@app.delete("/api/jobs/{job_id}/data", status_code=200)
+def delete_job_data(job_id: str):
+    """Permanently delete a completed/failed/terminated job and its data."""
+    if not _job_manager.delete_job(job_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Job not found or is still active",
+        )
+    return {"message": "Job deleted"}
+
+
 @app.post("/api/jobs/{job_id}/resume", status_code=200)
 def resume_job(job_id: str):
     """Resume a terminated or failed job from its checkpoint."""

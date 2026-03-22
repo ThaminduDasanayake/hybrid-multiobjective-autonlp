@@ -39,13 +39,7 @@ export function SortableHeader({ column, children, className }) {
   );
 }
 
-export function DataTable({
-  columns,
-  data,
-  getRowClassName,
-  footerContent,
-  initialSorting = [],
-}) {
+export function DataTable({ columns, data, getRowClassName, footerContent, initialSorting = [] }) {
   const [sorting, setSorting] = useState(initialSorting);
 
   const table = useReactTable({
@@ -67,10 +61,7 @@ export function DataTable({
                 <TableHead key={header.id} className="px-4 py-3">
                   {header.isPlaceholder
                     ? null
-                    : flexRender(
-                        header.column.columnDef.header,
-                        header.getContext(),
-                      )}
+                    : flexRender(header.column.columnDef.header, header.getContext())}
                 </TableHead>
               ))}
             </TableRow>
@@ -81,10 +72,7 @@ export function DataTable({
             table.getRowModel().rows.map((row) => (
               <TableRow
                 key={row.id}
-                className={cn(
-                  "hover:bg-muted/40",
-                  getRowClassName?.(row.original, row.index),
-                )}
+                className={cn("hover:bg-muted/40", getRowClassName?.(row.original, row.index))}
               >
                 {row.getVisibleCells().map((cell) => (
                   <TableCell key={cell.id} className="px-4 py-3">
@@ -95,10 +83,7 @@ export function DataTable({
             ))
           ) : (
             <TableRow>
-              <TableCell
-                colSpan={columns.length}
-                className="h-24 text-center"
-              >
+              <TableCell colSpan={columns.length} className="h-24 text-center">
                 No results.
               </TableCell>
             </TableRow>
@@ -107,7 +92,10 @@ export function DataTable({
         {footerContent && (
           <TableFooter className="bg-muted/30">
             <TableRow className="hover:bg-muted/30">
-              <TableCell colSpan={columns.length} className="px-4 py-2 text-xs text-muted-foreground font-normal">
+              <TableCell
+                colSpan={columns.length}
+                className="px-4 py-2 text-xs text-muted-foreground font-normal"
+              >
                 {footerContent}
               </TableCell>
             </TableRow>

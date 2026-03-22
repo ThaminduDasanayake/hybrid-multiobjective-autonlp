@@ -1,4 +1,4 @@
-import { GraduationCap, History, Zap } from "lucide-react";
+import { History, Zap } from "lucide-react";
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 export const NAV_ITEMS = [
@@ -12,14 +12,8 @@ export const NAV_ITEMS = [
   {
     to: "/history",
     icon: History,
-    label: "History & Analysis",
+    label: "Run History",
     description: "Browse past jobs",
-  },
-  {
-    to: "/experiments",
-    icon: GraduationCap,
-    label: "Experiments",
-    description: "Ablation studies & comparisons",
   },
 ];
 

@@ -11,7 +11,7 @@ const Layout = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {/* ---------------------------------------------------------------- Sidebar */}
+      {/* Sidebar */}
       <aside
         className={`flex shrink-0 flex-col bg-sidebar border-r border-sidebar-border transition-all duration-300 ${
           expanded ? "w-60" : "w-16"

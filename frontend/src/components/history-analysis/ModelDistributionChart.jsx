@@ -1,14 +1,16 @@
 import Plot from "react-plotly.js";
 import { fmt } from "@/utils/formatters.js";
-import { COLORS, AXIS_STYLE, CHART_LAYOUT, LEGEND_STYLE, CHART_CONFIG } from "@/utils/chartTheme.js";
+import {
+  COLORS,
+  AXIS_STYLE,
+  CHART_LAYOUT,
+  LEGEND_STYLE,
+  CHART_CONFIG,
+} from "@/utils/chartTheme.js";
 
 const ModelDistributionChart = ({ allSolutions = [], paretoFront = [] }) => {
   if (allSolutions.length === 0 && paretoFront.length === 0) {
-    return (
-      <div className="chart-empty h-64">
-        No solution data available.
-      </div>
-    );
+    return <div className="chart-empty h-64">No solution data available.</div>;
   }
 
   const countBy = (solutions) => {

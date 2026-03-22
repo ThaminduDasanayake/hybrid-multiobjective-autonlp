@@ -1,5 +1,11 @@
 import Plot from "react-plotly.js";
-import { COLORS, AXIS_STYLE, CHART_LAYOUT, LEGEND_STYLE, CHART_CONFIG } from "@/utils/chartTheme.js";
+import {
+  COLORS,
+  AXIS_STYLE,
+  CHART_LAYOUT,
+  LEGEND_STYLE,
+  CHART_CONFIG,
+} from "@/utils/chartTheme.js";
 
 const AblationBarChart = ({ masterMetrics, single, two, gaOnly }) => {
   const configs = [

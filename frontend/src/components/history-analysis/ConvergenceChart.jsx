@@ -3,11 +3,7 @@ import { COLORS, AXIS_STYLE, CHART_LAYOUT, CHART_CONFIG } from "@/utils/chartThe
 
 const ConvergenceChart = ({ searchHistory = [] }) => {
   if (searchHistory.length === 0) {
-    return (
-      <div className="chart-empty h-64">
-        No search history data available.
-      </div>
-    );
+    return <div className="chart-empty h-64">No search history data available.</div>;
   }
 
   // Max F1 per generation.

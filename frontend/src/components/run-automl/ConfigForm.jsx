@@ -14,11 +14,7 @@ const ConfigForm = ({ onJobStarted }) => {
 
   const startJobMutation = useStartJob();
 
-  // For Select components (receives the value string directly).
   const set = (key) => (val) => setConfig((prev) => ({ ...prev, [key]: val }));
-
-  // For SliderField (receives the new number value directly).
-  const setNum = (key) => (val) => setConfig((prev) => ({ ...prev, [key]: val }));
 
   const submit = (config) => {
     if (startJobMutation.isPending) return;
@@ -71,7 +67,7 @@ const ConfigForm = ({ onJobStarted }) => {
               min={100}
               max={10000}
               step={100}
-              onChange={setNum("max_samples")}
+              onChange={set("max_samples")}
             />
             <SliderField
               label="Population Size"
@@ -80,7 +76,7 @@ const ConfigForm = ({ onJobStarted }) => {
               min={5}
               max={100}
               step={5}
-              onChange={setNum("population_size")}
+              onChange={set("population_size")}
             />
             <SliderField
               label="Generations"
@@ -89,7 +85,7 @@ const ConfigForm = ({ onJobStarted }) => {
               min={1}
               max={50}
               step={1}
-              onChange={setNum("n_generations")}
+              onChange={set("n_generations")}
             />
             <SliderField
               label="BO Calls"
@@ -98,7 +94,7 @@ const ConfigForm = ({ onJobStarted }) => {
               min={10}
               max={50}
               step={5}
-              onChange={setNum("bo_calls")}
+              onChange={set("bo_calls")}
             />
           </CardContent>
         </Card>

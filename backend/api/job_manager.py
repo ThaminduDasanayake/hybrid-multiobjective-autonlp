@@ -227,6 +227,37 @@ class JobManager:
         logger.info(f"Resumed job {job_id}")
         return True
 
+    def delete_job(self, job_id: str) -> bool:
+        """Permanently delete a job's data from disk.
+
+        Only jobs in a terminal state (completed, failed, terminated) can be
+        deleted.  Returns True on success, False if the job doesn't exist or
+        is still active.
+        """
+        import shutil
+
+        status = self.get_status(job_id)
+        if not status:
+            return False
+        if status.get("status") not in ("completed", "failed", "terminated"):
+            return False
+
+        job_dir = self._get_job_dir(job_id)
+        if job_dir.exists():
+            shutil.rmtree(job_dir)
+
+        results_dir = Path(_BACKEND_ROOT) / "results" / job_id
+        if results_dir.exists():
+            shutil.rmtree(results_dir)
+
+        log_path = Path(_BACKEND_ROOT) / "logs" / f"run_{job_id}.log"
+        if log_path.exists():
+            log_path.unlink()
+
+        _futures.pop(job_id, None)
+        logger.info(f"Deleted job {job_id} and associated data")
+        return True
+
     def get_logs(self, job_id: str, lines: int = 100) -> list[str]:
         """Return the last *lines* lines from the job's rotating log file."""
         import glob as _glob
