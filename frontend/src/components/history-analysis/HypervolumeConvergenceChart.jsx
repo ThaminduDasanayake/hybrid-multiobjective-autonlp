@@ -3,11 +3,7 @@ import { COLORS, AXIS_STYLE, CHART_LAYOUT, CHART_CONFIG } from "@/utils/chartThe
 
 const HypervolumeConvergenceChart = ({ hvHistory = [] }) => {
   if (hvHistory.length === 0) {
-    return (
-      <div className="chart-empty h-64">
-        No hypervolume history available.
-      </div>
-    );
+    return <div className="chart-empty h-64">No hypervolume history available.</div>;
   }
 
   const generations = hvHistory.map((h) => h.generation);

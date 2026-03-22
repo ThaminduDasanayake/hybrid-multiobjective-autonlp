@@ -77,17 +77,27 @@ const SolutionsTable = ({ solutions = [], kneePoint = null }) => {
 
   // Metric ranges for relative coloring.
   const { f1Range, latRange, interpRange } = useMemo(() => {
-    if (tableData.length === 0) return { f1Range: { min: 0, max: 0 }, latRange: { min: 0, max: 0 }, interpRange: { min: 0, max: 0 } };
+    if (tableData.length === 0)
+      return {
+        f1Range: { min: 0, max: 0 },
+        latRange: { min: 0, max: 0 },
+        interpRange: { min: 0, max: 0 },
+      };
     const f1Values = tableData.map((s) => s.f1_score ?? 0);
     const latValues = tableData.map((s) => s._latencyMs);
     const interpValues = tableData.map((s) => s.interpretability ?? 0);
     const range = (arr) => ({ min: Math.min(...arr), max: Math.max(...arr) });
-    return { f1Range: range(f1Values), latRange: range(latValues), interpRange: range(interpValues) };
+    return {
+      f1Range: range(f1Values),
+      latRange: range(latValues),
+      interpRange: range(interpValues),
+    };
   }, [tableData]);
 
   // Identify notable solutions.
   const { kneeId, bestF1Id, bestSpeedId, bestInterpId } = useMemo(() => {
-    if (tableData.length === 0) return { kneeId: null, bestF1Id: null, bestSpeedId: null, bestInterpId: null };
+    if (tableData.length === 0)
+      return { kneeId: null, bestF1Id: null, bestSpeedId: null, bestInterpId: null };
     const kneeId = kneePoint ? id(kneePoint) : null;
     const bestF1Id = tableData[0]._solId;
     const bestSpeed = tableData.reduce((b, s) => (s._latencyMs < b._latencyMs ? s : b));

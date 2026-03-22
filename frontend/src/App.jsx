@@ -1,8 +1,8 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
-import HistoryAnalysis from "./pages/HistoryAnalysis";
 import RunAutoML from "./pages/RunAutoML";
-import Experiments from "./pages/Experiments.jsx";
+import RunHistory from "./pages/RunHistory";
+import JobDetail from "./pages/JobDetail";
 
 const App = () => {
   return (
@@ -10,8 +10,8 @@ const App = () => {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<RunAutoML />} />
-          <Route path="history" element={<HistoryAnalysis />} />
-          <Route path="experiments" element={<Experiments />} />
+          <Route path="history" element={<RunHistory />} />
+          <Route path="history/:jobId" element={<JobDetail />} />
         </Route>
       </Routes>
     </BrowserRouter>

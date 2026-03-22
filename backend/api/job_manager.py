@@ -227,6 +227,59 @@ class JobManager:
         logger.info(f"Resumed job {job_id}")
         return True
 
+    def delete_job(self, job_id: str) -> bool:
+        """Permanently delete a job's data from disk.
+
+        Only jobs in a terminal state (completed, failed, terminated) can be
+        deleted.  Returns True on success, False if the job doesn't exist or
+        is still active.
+        """
+        import shutil
+
+        if not job_id or "/" in job_id or "\\" in job_id or job_id.startswith("."):
+            logger.warning(f"Invalid job_id format: {job_id}")
+            return False
+
+        status = self.get_status(job_id)
+        if not status:
+            return False
+        if status.get("status") not in ("completed", "failed", "terminated"):
+            return False
+
+        fut = _futures.get(job_id)
+        if fut and not fut.done():
+            try:
+                fut.result(timeout=10)
+            except Exception:
+                logger.warning(f"Worker for {job_id} did not finish cleanly within timeout")
+                return False
+
+        job_dir = self._get_job_dir(job_id)
+        try:
+            if job_dir.exists():
+                shutil.rmtree(job_dir)
+        except OSError as e:
+            logger.error(f"Failed to delete job directory for {job_id}: {e}")
+            return False
+
+        results_dir = Path(_BACKEND_ROOT) / "results" / job_id
+        try:
+            if results_dir.exists():
+                shutil.rmtree(results_dir)
+        except OSError as e:
+            logger.warning(f"Failed to delete results directory for {job_id}: {e}")
+
+        log_path = Path(_BACKEND_ROOT) / "logs" / f"run_{job_id}.log"
+        try:
+            if log_path.exists():
+                log_path.unlink()
+        except OSError as e:
+            logger.warning(f"Failed to delete log file for {job_id}: {e}")
+
+        _futures.pop(job_id, None)
+        logger.info(f"Deleted job {job_id} and associated data")
+        return True
+
     def get_logs(self, job_id: str, lines: int = 100) -> list[str]:
         """Return the last *lines* lines from the job's rotating log file."""
         import glob as _glob

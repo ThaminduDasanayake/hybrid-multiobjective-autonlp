@@ -27,11 +27,7 @@ const countBy = (solutions, key, value) =>
 
 const PipelineBreakdownChart = ({ allSolutions = [], paretoFront = [] }) => {
   if (allSolutions.length === 0) {
-    return (
-      <div className="chart-empty h-40">
-        No solutions available.
-      </div>
-    );
+    return <div className="chart-empty h-40">No solutions available.</div>;
   }
 
   const allTraces = [];
