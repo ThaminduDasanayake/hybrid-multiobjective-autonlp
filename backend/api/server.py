@@ -217,11 +217,13 @@ def terminate_job(job_id: str):
 @app.delete("/api/jobs/{job_id}/data", status_code=200)
 def delete_job_data(job_id: str):
     """Permanently delete a completed/failed/terminated job and its data."""
+    status = _job_manager.get_status(job_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if status.get("status") not in ("completed", "failed", "terminated"):
+        raise HTTPException(status_code=409, detail="Job is still active")
     if not _job_manager.delete_job(job_id):
-        raise HTTPException(
-            status_code=400,
-            detail="Job not found or is still active",
-        )
+        raise HTTPException(status_code=500, detail="Failed to delete job data")
     return {"message": "Job deleted"}
 
 

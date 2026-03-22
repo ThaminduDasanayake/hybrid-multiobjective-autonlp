@@ -246,6 +246,14 @@ class JobManager:
         if status.get("status") not in ("completed", "failed", "terminated"):
             return False
 
+        fut = _futures.get(job_id)
+        if fut and not fut.done():
+            try:
+                fut.result(timeout=10)
+            except Exception:
+                logger.warning(f"Worker for {job_id} did not finish cleanly within timeout")
+                return False
+
         job_dir = self._get_job_dir(job_id)
         try:
             if job_dir.exists():

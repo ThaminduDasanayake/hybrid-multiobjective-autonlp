@@ -69,7 +69,7 @@ const JobDetail = () => {
 
   // Result data (charts + metrics)
   const { data: jobData, isLoading: resultLoading, error: resultError } = useJobResult(jobId);
-  const { data: hvHistory = [] } = useHypervolumeHistory(jobId);
+  const { data: hvHistory = [], isLoading: hvLoading } = useHypervolumeHistory(jobId);
   const metrics = jobData?.metrics ?? null;
   const allSolutions = jobData?.all_solutions ?? [];
   const paretoFront = jobData?.pareto_front ?? [];
@@ -172,7 +172,7 @@ const JobDetail = () => {
             variant="outline"
             size="sm"
             onClick={handleExport}
-            disabled={resultLoading || !jobData}
+            disabled={resultLoading || !jobData || hvLoading || ablationsLoading}
           >
             <Download size={14} />
             Export Research Bundle

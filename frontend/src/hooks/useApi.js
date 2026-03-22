@@ -141,8 +141,10 @@ export function useDeleteJob() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (jobId) => deleteJob(jobId),
-    onSuccess: () => {
+    onSuccess: (_data, jobId) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.removeQueries({ queryKey: ["job-result", jobId] });
+      queryClient.removeQueries({ queryKey: ["hv-history", jobId] });
     },
   });
 }

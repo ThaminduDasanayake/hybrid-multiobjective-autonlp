@@ -69,11 +69,7 @@ const LiveTracker = ({ jobId, onFinished }) => {
 
     es.onerror = () => {
       es.close();
-      setJobStatus((prev) => {
-        if (TERMINAL_STATES.has(prev)) return prev;
-        setSseError((e) => e ?? "Connection lost");
-        return "failed";
-      });
+      setSseError((e) => e ?? "Connection lost");
     };
 
     return () => es.close();
