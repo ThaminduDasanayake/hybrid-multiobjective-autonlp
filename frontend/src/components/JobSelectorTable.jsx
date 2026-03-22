@@ -8,7 +8,7 @@ import { fmt } from "@/utils/formatters.js";
 
 const DATASET_LABEL = Object.fromEntries(DATASETS.map((d) => [d.value, d.label]));
 
-const JobSelectorTable = ({ jobs = {}, onDelete, isDeleting }) => {
+const JobSelectorTable = ({ jobs = {}, onDelete = () => {}, isDeleting }) => {
   const navigate = useNavigate();
 
   const tableData = useMemo(() => {
@@ -138,6 +138,7 @@ const JobSelectorTable = ({ jobs = {}, onDelete, isDeleting }) => {
                 }}
                 disabled={isDeleting}
                 className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                aria-label={`Delete job ${id}`}
               >
                 <Trash2 size={13} />
               </Button>
@@ -157,7 +158,11 @@ const JobSelectorTable = ({ jobs = {}, onDelete, isDeleting }) => {
       columns={columns}
       data={tableData}
       initialSorting={[{ id: "start_time", desc: true }]}
-      footerContent={<>{tableData.length} completed run{tableData.length !== 1 ? "s" : ""}</>}
+      footerContent={
+        <>
+          {tableData.length} completed run{tableData.length !== 1 ? "s" : ""}
+        </>
+      }
     />
   );
 };

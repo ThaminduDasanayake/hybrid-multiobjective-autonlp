@@ -236,6 +236,10 @@ class JobManager:
         """
         import shutil
 
+        if not job_id or "/" in job_id or "\\" in job_id or job_id.startswith("."):
+            logger.warning(f"Invalid job_id format: {job_id}")
+            return False
+
         status = self.get_status(job_id)
         if not status:
             return False
@@ -243,16 +247,26 @@ class JobManager:
             return False
 
         job_dir = self._get_job_dir(job_id)
-        if job_dir.exists():
-            shutil.rmtree(job_dir)
+        try:
+            if job_dir.exists():
+                shutil.rmtree(job_dir)
+        except OSError as e:
+            logger.error(f"Failed to delete job directory for {job_id}: {e}")
+            return False
 
         results_dir = Path(_BACKEND_ROOT) / "results" / job_id
-        if results_dir.exists():
-            shutil.rmtree(results_dir)
+        try:
+            if results_dir.exists():
+                shutil.rmtree(results_dir)
+        except OSError as e:
+            logger.warning(f"Failed to delete results directory for {job_id}: {e}")
 
         log_path = Path(_BACKEND_ROOT) / "logs" / f"run_{job_id}.log"
-        if log_path.exists():
-            log_path.unlink()
+        try:
+            if log_path.exists():
+                log_path.unlink()
+        except OSError as e:
+            logger.warning(f"Failed to delete log file for {job_id}: {e}")
 
         _futures.pop(job_id, None)
         logger.info(f"Deleted job {job_id} and associated data")
