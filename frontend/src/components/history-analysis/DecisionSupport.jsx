@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Star, TrendingUp, Zap, Lightbulb } from "lucide-react";
+import { ChevronDown, ChevronRight, Star, Clock, Lightbulb, Target } from "lucide-react";
 import { Card, CardContent } from "../ui/card.jsx";
 import { Button } from "../ui/button.jsx";
 
@@ -134,14 +134,14 @@ const DecisionSupport = ({ paretoFront, kneePoint }) => {
         />
         <RecommendCard
           title="Best Accuracy"
-          icon={TrendingUp}
+          icon={Target}
           metricLabel="F1 Score"
           metricValue={Number(bestAccuracy?.f1_score ?? 0).toFixed(4)}
           pipeline={bestAccuracy}
         />
         <RecommendCard
           title="Best Speed"
-          icon={Zap}
+          icon={Clock}
           metricLabel="Latency"
           metricValue={`${(Number(bestSpeed?.latency ?? 0) * 1000).toFixed(4)} ms`}
           pipeline={bestSpeed}

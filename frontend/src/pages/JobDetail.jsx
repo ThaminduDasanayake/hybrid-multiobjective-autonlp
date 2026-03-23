@@ -86,7 +86,7 @@ const JobDetail = () => {
     isLoading: ablationsLoading,
     error: ablationsError,
     refetch: refetchAblations,
-  } = useAblations({ refetchInterval: isPolling ? 10_000 : false });
+  } = useAblations({ refetchInterval: isPolling ? 10_000 : false, parentJobId: jobId });
 
   const runAblationMutation = useRunAblation();
 
@@ -105,7 +105,8 @@ const JobDetail = () => {
   const gaOnlyRT = gaOnlyData?.status === "completed" ? gaOnlyData.runtime_seconds : null;
   const randomSearchData = d[`random_search_${jobId}`];
   const randomSearch = randomSearchData?.status === "completed" ? randomSearchData.metrics : null;
-  const randomSearchRT = randomSearchData?.status === "completed" ? randomSearchData.runtime_seconds : null;
+  const randomSearchRT =
+    randomSearchData?.status === "completed" ? randomSearchData.runtime_seconds : null;
 
   // Scroll to top when navigating to a new job
   useEffect(() => {
@@ -176,7 +177,7 @@ const JobDetail = () => {
             Back to Home
           </Button>
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             onClick={handleExport}
             disabled={resultLoading || !jobData || hvLoading || ablationsLoading}
@@ -185,9 +186,7 @@ const JobDetail = () => {
             Export Research Bundle
           </Button>
         </div>
-        <h1 className="text-2xl font-bold text-foreground">
-          {dataset || "Job Detail"}
-        </h1>
+        <h1 className="text-2xl font-bold text-foreground">{dataset || "Job Detail"}</h1>
         <p className="mt-1 font-mono text-sm text-muted-foreground">
           {jobId} — {fmt.date(jobMeta?.start_time)}
         </p>
@@ -210,7 +209,7 @@ const JobDetail = () => {
       <JobConfigCard config={jobData?.config} />
 
       {jobData && !resultLoading && (
-        <div className="space-y-6 mt-4">
+        <div className="space-y-8 mt-4">
           {/* Metric Cards */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <MetricCard
@@ -284,7 +283,7 @@ const JobDetail = () => {
                 <li>Grey = dominated solutions</li>
               </ul>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div className="card-section">
                 <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">
                   F1 Score vs. Latency
@@ -356,51 +355,55 @@ const JobDetail = () => {
             </div>
           </section>
 
-          {/* Solution Analysis */}
-          <section>
-            <div className="mb-3">
-              <h2 className="section-title">Solution Analysis</h2>
-              <p className="section-subtitle">
-                Distribution of models and objective values across the search
-              </p>
-            </div>
-            <div className="card-section">
-              <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">Model Frequency</p>
-              <Suspense
-                fallback={
-                  <div className="chart-empty h-90 gap-2">
-                    <Loader2 size={16} className="animate-spin" />
-                    Loading chart…
-                  </div>
-                }
-              >
-                <ModelDistributionChart allSolutions={allSolutions} paretoFront={paretoFront} />
-              </Suspense>
-            </div>
-          </section>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {/* Solution Analysis */}
+            <section className="flex flex-col">
+              <div className="mb-3">
+                <h2 className="section-title">Solution Analysis</h2>
+                <p className="section-subtitle">
+                  Distribution of models and objective values across the search
+                </p>
+              </div>
+              <div className="card-section flex-1">
+                <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">
+                  Model Frequency
+                </p>
+                <Suspense
+                  fallback={
+                    <div className="chart-empty h-90 gap-2">
+                      <Loader2 size={16} className="animate-spin" />
+                      Loading chart…
+                    </div>
+                  }
+                >
+                  <ModelDistributionChart allSolutions={allSolutions} paretoFront={paretoFront} />
+                </Suspense>
+              </div>
+            </section>
 
-          {/* Pipeline Component Breakdown */}
-          <section>
-            <div className="mb-3">
-              <h2 className="section-title">Pipeline Component Breakdown</h2>
-              <p className="section-subtitle">
-                Frequency of vectorizer, scaler, and dimensionality reduction choices — all
-                solutions vs Pareto front
-              </p>
-            </div>
-            <div className="card-section">
-              <Suspense
-                fallback={
-                  <div className="chart-empty h-40 gap-2">
-                    <Loader2 size={16} className="animate-spin" />
-                    Loading chart…
-                  </div>
-                }
-              >
-                <PipelineBreakdownChart allSolutions={allSolutions} paretoFront={paretoFront} />
-              </Suspense>
-            </div>
-          </section>
+            {/* Pipeline Component Breakdown */}
+            <section className="flex flex-col">
+              <div className="mb-3">
+                <h2 className="section-title">Pipeline Component Breakdown</h2>
+                <p className="section-subtitle">
+                  Frequency of vectorizer, scaler, and dimensionality reduction choices — all
+                  solutions vs Pareto front
+                </p>
+              </div>
+              <div className="card-section flex-1">
+                <Suspense
+                  fallback={
+                    <div className="chart-empty h-40 gap-2">
+                      <Loader2 size={16} className="animate-spin" />
+                      Loading chart…
+                    </div>
+                  }
+                >
+                  <PipelineBreakdownChart allSolutions={allSolutions} paretoFront={paretoFront} />
+                </Suspense>
+              </div>
+            </section>
+          </div>
 
           {/* Pareto Front Trade-off Heatmap */}
           <section>

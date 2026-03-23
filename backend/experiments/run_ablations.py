@@ -183,19 +183,6 @@ def main() -> None:
     print("=" * 60 + "\n")
 
     # --- Save results ---
-    # When a parent job ID is provided, nest ablation inside the job directory
-    # so that deleting the job cleans up its ablations automatically.
-    if args.job_id:
-        eff_mode = "random_search" if args.mode == "random_search" else ("ga_only" if args.disable_bo else args.mode)
-        output_dir = Path("jobs") / args.job_id / "ablations"
-    else:
-        output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    if args.job_id:
-        output_file = output_dir / f"{eff_mode}.json"
-    else:
-        output_file = output_dir / f"ablation_{args.mode}_{args.dataset}.json"
     payload = {
         "mode": args.mode,
         "weights": weights,
@@ -220,10 +207,29 @@ def main() -> None:
         "results": to_python_type(results),
     }
 
-    with open(output_file, "w") as f:
-        json.dump(payload, f, indent=2)
+    # When a parent job ID is provided, write the ablation result to MongoDB
+    # (nested inside the parent job document).  Otherwise, write to a local file.
+    if args.job_id:
+        from api.db import get_db
 
-    logger.info(f"Results saved to {output_file}")
+        eff_mode = "random_search" if args.mode == "random_search" else ("ga_only" if args.disable_bo else args.mode)
+        payload["status"] = "completed"
+        payload["parent_job_id"] = args.job_id
+        payload["disable_bo"] = args.disable_bo
+
+        db = get_db()
+        db.jobs.update_one(
+            {"_id": args.job_id},
+            {"$set": {f"ablations.{eff_mode}": to_python_type(payload)}},
+        )
+        logger.info(f"Results saved to MongoDB → ablations.{eff_mode} on {args.job_id}")
+    else:
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = output_dir / f"ablation_{args.mode}_{args.dataset}.json"
+        with open(output_file, "w") as f:
+            json.dump(payload, f, indent=2)
+        logger.info(f"Results saved to {output_file}")
 
 
 if __name__ == "__main__":
