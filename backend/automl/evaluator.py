@@ -1,5 +1,5 @@
 import time
-from typing import Any, Dict, Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 

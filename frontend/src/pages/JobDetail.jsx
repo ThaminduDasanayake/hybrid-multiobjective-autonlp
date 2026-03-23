@@ -100,6 +100,8 @@ const JobDetail = () => {
   const twoRT = d[`multi_2d_${jobId}`]?.runtime_seconds ?? null;
   const gaOnly = d[`ga_only_${jobId}`]?.metrics ?? null;
   const gaOnlyRT = d[`ga_only_${jobId}`]?.runtime_seconds ?? null;
+  const randomSearch = d[`random_search_${jobId}`]?.metrics ?? null;
+  const randomSearchRT = d[`random_search_${jobId}`]?.runtime_seconds ?? null;
 
   // Scroll to top when navigating to a new job
   useEffect(() => {
@@ -143,6 +145,7 @@ const JobDetail = () => {
         single_objective: ablationsData?.[`single_f1_${jobId}`] ?? null,
         two_objective: ablationsData?.[`multi_2d_${jobId}`] ?? null,
         ga_only: ablationsData?.[`ga_only_${jobId}`] ?? null,
+        random_search: ablationsData?.[`random_search_${jobId}`] ?? null,
       },
     };
     const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
@@ -162,11 +165,11 @@ const JobDetail = () => {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigate("/history")}
+            onClick={() => navigate("/")}
             className="mb-3 -ml-2 text-muted-foreground"
           >
             <ArrowLeft size={14} />
-            Back to Run History
+            Back to Home
           </Button>
           <Button
             variant="outline"
@@ -566,6 +569,16 @@ const JobDetail = () => {
                       { value: fRuntime(twoRT) },
                     ],
                   },
+                  {
+                    label: "Random Search Baseline",
+                    sub: "No GA, no BO — pure random sampling",
+                    even: true,
+                    cells: [
+                      { value: f4(randomSearch?.best_f1) },
+                      { value: f4(randomSearch?.hypervolume) },
+                      { value: fRuntime(randomSearchRT) },
+                    ],
+                  },
                 ]}
               />
 
@@ -591,6 +604,7 @@ const JobDetail = () => {
                       single={single}
                       two={two}
                       gaOnly={gaOnly}
+                      randomSearch={randomSearch}
                     />
                   </Suspense>
                 </div>
@@ -628,7 +642,14 @@ const JobDetail = () => {
                       onClick={() => handleRun("multi_3d", true)}
                     />
                   )}
-                  {single && two && gaOnly && (
+                  {!randomSearch && (
+                    <RunButton
+                      label="Run Random Search Baseline"
+                      queued={!!queuedAblations[`random_search_${jobId}`]}
+                      onClick={() => handleRun("random_search", false)}
+                    />
+                  )}
+                  {single && two && gaOnly && randomSearch && (
                     <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm text-muted-foreground">
                       <span className="text-accent-foreground">✓</span>
                       All ablation runs complete for{" "}

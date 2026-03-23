@@ -239,7 +239,16 @@ class BayesianOptimizer:
         # Sample one random point from the search space
         random_params = {}
         for dim in space:
-            val = dim.rvs(random_state=self._rng)[0]
+            sample = dim.rvs(n_samples=1, random_state=self._rng)
+            # Categorical.rvs() may return a bare scalar string instead of
+            # a list/array when n_samples=1.  Indexing a string would yield
+            # a single character (e.g. "l" from "l1"), so guard against that.
+            if isinstance(sample, str):
+                val = sample
+            elif isinstance(sample, (list, np.ndarray)):
+                val = sample[0]
+            else:
+                val = sample
             # Categorical dimensions return numpy types (e.g. numpy.str_);
             # sklearn parameter validators require native Python types.
             if hasattr(val, "item"):

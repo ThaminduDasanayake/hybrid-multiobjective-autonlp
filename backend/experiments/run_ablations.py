@@ -183,12 +183,19 @@ def main() -> None:
     print("=" * 60 + "\n")
 
     # --- Save results ---
-    output_dir = Path(args.output_dir)
+    # When a parent job ID is provided, nest ablation inside the job directory
+    # so that deleting the job cleans up its ablations automatically.
+    if args.job_id:
+        eff_mode = "random_search" if args.mode == "random_search" else ("ga_only" if args.disable_bo else args.mode)
+        output_dir = Path("jobs") / args.job_id / "ablations"
+    else:
+        output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Include job_id in filename so multiple runs on the same dataset don't collide
-    job_suffix = f"_{args.job_id}" if args.job_id else ""
-    output_file = output_dir / f"ablation_{args.mode}_{args.dataset}{job_suffix}.json"
+    if args.job_id:
+        output_file = output_dir / f"{eff_mode}.json"
+    else:
+        output_file = output_dir / f"ablation_{args.mode}_{args.dataset}.json"
     payload = {
         "mode": args.mode,
         "weights": weights,

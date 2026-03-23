@@ -1,7 +1,7 @@
 import random
 import time
 import numpy as np
-from typing import Callable, List, Dict, Any, Optional
+from typing import Callable, List, Optional
 from deap import base, creator, tools
 from utils.logger import get_logger
 from .persistence import ResultStore
@@ -20,6 +20,7 @@ OPTIMIZATION_MODES = {
     "multi_3d": (1.0, -1.0, 1.0),  # Default: 3-objective
     "single_f1": (1.0, -1e-10, -1e-10),  # Ablation: F1 only
     "multi_2d": (1.0, -1.0, -1e-10),  # Ablation: F1 + Latency
+    "random_search": (1.0, -1.0, 1.0),  # Baseline: same weights as multi_3d, no GA operators
 }
 
 
@@ -206,48 +207,45 @@ class EvolutionarySearch:
         return False
 
     def run(self, callback: Optional[Callable] = None):
-        # Resume from checkpoint if population was saved
-        checkpoint_state = self.result_store.load_checkpoint() or {}
-        saved_genes = checkpoint_state.get("population")
-        start_gen = int(checkpoint_state.get("completed_generations", 0))
+        population = self.toolbox.population(n=self.population_size)
 
-        if saved_genes and start_gen >= self.n_generations:
+        # Random search bypass: flat evaluation, no evolutionary operators
+        if self.optimization_mode == "random_search":
+            total_budget = self.population_size * self.n_generations
+            population = self.toolbox.population(n=total_budget)
             logger.info(
-                "Checkpoint indicates all generations are already completed; skipping run."
+                f"Random search: evaluating {total_budget} random individuals "
+                f"(pop={self.population_size} x gen={self.n_generations})"
             )
-            return
-        if saved_genes and 0 < start_gen < self.n_generations:
-            logger.info(
-                f"Resuming from checkpoint: restarting at generation "
-                f"{start_gen + 1}/{self.n_generations} "
-                f"with {len(saved_genes)} individuals and "
-                f"{len(self.result_store.eval_cache)} cached evaluations."
-            )
-            population = [creator.Individual(genes) for genes in saved_genes]
-            # Restore fitness from eval cache where possible
-            for ind in population:
-                key = self.result_store.get_individual_key(ind)
-                cached = self.result_store.peek(key)
-                if cached:
-                    ind.fitness.values = (
-                        cached["f1_score"],
-                        cached["latency"],
-                        cached["interpretability"],
+
+            gen_start_time = time.time()
+            for i, ind in enumerate(population):
+                pseudo_gen = i // self.population_size
+                fit = self.toolbox.evaluate(ind, generation=pseudo_gen)
+                ind.fitness.values = fit
+
+                # Fire progress callback every population_size evaluations
+                if callback and (i + 1) % self.population_size == 0:
+                    pseudo_gen = (i + 1) // self.population_size
+                    callback(
+                        {
+                            "current_generation": pseudo_gen,
+                            "total_generations": self.n_generations,
+                            "message": f"Random search: evaluated {i + 1}/{total_budget}",
+                            "progress": int(((i + 1) / total_budget) * 100),
+                        }
                     )
-        else:
-            start_gen = 0
-            population = self.toolbox.population(n=self.population_size)
+
+            gen_time = time.time() - gen_start_time
+            self.result_store.add_time_stats(generation_time=gen_time)
+            logger.info(f"Random search completed in {format_time(gen_time)}")
+            return
 
         # HOF is used for early stopping only — final Pareto front is
         # recomputed from all evaluated solutions in hybrid_automl.py.
         hof = tools.ParetoFront()
-        # Seed HOF with any already-evaluated individuals when resuming
-        if start_gen > 0:
-            valid_restored = [ind for ind in population if ind.fitness.valid]
-            if valid_restored:
-                hof.update(valid_restored)
 
-        for gen in range(start_gen, self.n_generations):
+        for gen in range(self.n_generations):
             gen_start_time = time.time()
             logger.info(f"Generation {gen + 1}/{self.n_generations}")
 
@@ -306,12 +304,6 @@ class EvolutionarySearch:
 
             if self._check_early_stopping(hof, new_individuals_ratio):
                 logger.info(f"Stopped at generation {gen + 1}")
-                self.result_store.save_checkpoint(
-                    extra_state={
-                        "population": [list(ind) for ind in population],
-                        "completed_generations": gen + 1,
-                    }
-                )
                 break
 
             # Selection & Offspring
@@ -330,13 +322,6 @@ class EvolutionarySearch:
                     del mutant.fitness.values
 
             population[:] = offspring
-            # Save offspring (next generation state) for correct resume behavior
-            self.result_store.save_checkpoint(
-                extra_state={
-                    "population": [list(ind) for ind in population],
-                    "completed_generations": gen + 1,
-                }
-            )
 
             gen_time = time.time() - gen_start_time
             self.result_store.add_time_stats(generation_time=gen_time)

@@ -1,21 +1,4 @@
-import { History, Zap } from "lucide-react";
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
-
-export const NAV_ITEMS = [
-  {
-    to: "/",
-    end: true,
-    icon: Zap,
-    label: "Run AutoML",
-    description: "Launch a new run",
-  },
-  {
-    to: "/history",
-    icon: History,
-    label: "Run History",
-    description: "Browse past jobs",
-  },
-];
 
 // Config Form
 export const DATASETS = [

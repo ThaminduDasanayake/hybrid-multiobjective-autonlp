@@ -25,7 +25,6 @@ class HybridAutoML:
         n_generations: int = 10,
         bo_calls: int = 15,
         random_state: int = 42,
-        checkpoint_dir: str = None,
         optimization_mode: str = "multi_3d",
         disable_bo: bool = False,
     ):
@@ -34,9 +33,12 @@ class HybridAutoML:
         self.random_state = random_state
         self.optimization_mode = optimization_mode
 
+        # Random search inherently skips BO
+        if optimization_mode == "random_search":
+            disable_bo = True
+
         # Initialize components
-        self.result_store = ResultStore(checkpoint_dir)
-        self.result_store.load_checkpoint()
+        self.result_store = ResultStore()
 
         self.bo_optimizer = BayesianOptimizer(
             n_calls=bo_calls,

@@ -1,6 +1,4 @@
-import os
 import json
-import pickle
 import hashlib
 from typing import Dict, List, Any, Optional
 from utils.logger import get_logger
@@ -10,14 +8,10 @@ logger = get_logger("persistence")
 
 class ResultStore:
     """
-    Handles persistence of AutoML results, including caching and checkpointing.
+    Handles persistence of AutoML results including caching and search history.
     """
 
-    def __init__(self, checkpoint_dir: Optional[str] = None):
-        self.checkpoint_dir = checkpoint_dir
-        if self.checkpoint_dir:
-            os.makedirs(self.checkpoint_dir, exist_ok=True)
-
+    def __init__(self):
         self.eval_cache = {}
         self.search_history = []
 
@@ -75,60 +69,4 @@ class ResultStore:
         if generation_time > 0:
             self.generation_times.append(generation_time)
 
-    def set_generation_time(self, gen_idx: int, duration: float):
-        """Set processed generation time (idempotent for retries)."""
-        if len(self.generation_times) <= gen_idx:
-            self.generation_times.append(duration)
-        else:
-            self.generation_times[gen_idx] = duration
 
-    def save_checkpoint(
-        self, extra_state: Dict[str, Any] = None, filename: str = "checkpoint.pkl"
-    ):
-        """Save current state to a checkpoint file."""
-        if not self.checkpoint_dir:
-            return
-
-        path = os.path.join(self.checkpoint_dir, filename)
-        try:
-            state = {
-                "eval_cache": self.eval_cache,
-                "search_history": self.search_history,
-                "total_optimization_time": self.total_optimization_time,
-                "generation_times": self.generation_times,
-            }
-
-            if extra_state:
-                state.update(extra_state)
-
-            with open(path, "wb") as f:
-                pickle.dump(state, f)
-            logger.info(f"Checkpoint saved to {path}")
-        except Exception as e:
-            logger.error(f"Failed to save checkpoint: {e}")
-
-    def load_checkpoint(
-        self, filename: str = "checkpoint.pkl"
-    ) -> Optional[Dict[str, Any]]:
-        """Load state from a checkpoint file and return extra state."""
-        if not self.checkpoint_dir:
-            return None
-
-        path = os.path.join(self.checkpoint_dir, filename)
-        if not os.path.exists(path):
-            return None
-
-        try:
-            with open(path, "rb") as f:
-                state = pickle.load(f)
-
-            self.eval_cache = state.get("eval_cache", {})
-            self.search_history = state.get("search_history", [])
-            self.total_optimization_time = state.get("total_optimization_time", 0.0)
-            self.generation_times = state.get("generation_times", [])
-
-            logger.info(f"Checkpoint loaded from {path}")
-            return state
-        except Exception as e:
-            logger.error(f"Failed to load checkpoint: {e}")
-            return None

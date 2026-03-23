@@ -192,7 +192,6 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
                 n_generations=config.get("n_generations", 10),
                 bo_calls=config.get("bo_calls", 15),
                 random_state=config.get("seed", 42),
-                checkpoint_dir=str(job_dir / "checkpoints"),
                 optimization_mode=config.get("optimization_mode", "multi_3d"),
                 disable_bo=config.get("disable_bo", False),
             )
@@ -238,7 +237,7 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
                         else 0.0
                     )
                     current["best_f1"] = round(best_f1, 4)
-                    current["best_latency_ms"] = round(best_latency_ms, 2)
+                    current["best_latency_ms"] = round(best_latency_ms, 4)
                     current["best_interpretability"] = round(best_interpretability, 4)
                     current["cache_hit_rate"] = cache_hit_rate
                     current["total_evaluated"] = len(store.eval_cache)
@@ -348,17 +347,19 @@ def run_ablation(
             f"dataset={dataset}, disable_bo={disable_bo}"
         )
 
-        # Deterministic output path — shared with server.py idempotency check.
-        output_dir = Path(backend_root_str) / "results" / "ablations"
+        # Deterministic output path — nested inside parent job directory.
+        # Deleting the parent job folder now automatically cleans up ablations.
+        eff_mode = "random_search" if mode == "random_search" else ("ga_only" if disable_bo else mode)
+        output_dir = Path(backend_root_str) / "jobs" / parent_job_id / "ablations"
         output_dir.mkdir(parents=True, exist_ok=True)
-        name_parts = ["ablation", mode]
-        if disable_bo:
-            name_parts.append("nobo")
-        name_parts.append(parent_job_id)
-        output_file = output_dir / f"{'_'.join(name_parts)}.json"
+        output_file = output_dir / f"{eff_mode}.json"
 
         try:
             weights = OPTIMIZATION_MODES.get(mode, [1.0, -1.0, 1.0])
+
+            # Random search inherently disables BO
+            if mode == "random_search":
+                disable_bo = True
 
             data_dir = str(Path(backend_root_str) / "data")
             data_loader = DataLoader(cache_dir=data_dir)
