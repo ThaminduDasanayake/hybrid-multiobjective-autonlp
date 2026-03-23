@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2, MoveDown, MoveUp, RotateCcw, Square, Terminal } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  MoveDown,
+  MoveUp,
+  RotateCcw,
+  Square,
+  Terminal,
+} from "lucide-react";
 import { streamUrl } from "@/api.js";
 import { useCancelJob } from "@/hooks/useApi.js";
 import { Alert, AlertDescription } from "../ui/alert.jsx";
@@ -69,7 +78,14 @@ const LiveTracker = ({ jobId, onFinished }) => {
 
     es.onerror = () => {
       es.close();
-      setSseError((e) => e ?? "Connection lost");
+      // Only show error if job hasn't reached a terminal state — the server
+      // closes the stream after completion which triggers onerror normally.
+      setJobStatus((prev) => {
+        if (!TERMINAL_STATES.has(prev)) {
+          setSseError((e) => e ?? "Connection lost");
+        }
+        return prev;
+      });
     };
 
     return () => es.close();
@@ -143,18 +159,30 @@ const LiveTracker = ({ jobId, onFinished }) => {
           dimmed={metrics.total_evaluated === 0}
         />
         <StatCard
-          label={<>Best F1 <MoveUp size={12} className="inline" /></>}
+          label={
+            <>
+              Best F1 <MoveUp size={12} className="inline" />
+            </>
+          }
           value={metrics.best_f1 > 0 ? metrics.best_f1.toFixed(4) : "—"}
           dimmed={metrics.best_f1 === 0}
         />
         <StatCard
-          label={<>Best Latency <MoveDown size={12} className="inline" /></>}
-          value={metrics.best_latency_ms > 0 ? metrics.best_latency_ms.toFixed(2) : "—"}
+          label={
+            <>
+              Best Latency <MoveDown size={12} className="inline" />
+            </>
+          }
+          value={metrics.best_latency_ms > 0 ? metrics.best_latency_ms.toFixed(4) : "—"}
           unit={metrics.best_latency_ms > 0 ? "ms" : undefined}
           dimmed={metrics.best_latency_ms === 0}
         />
         <StatCard
-          label={<>Best Interpretability <MoveUp size={12} className="inline" /></>}
+          label={
+            <>
+              Best Interpretability <MoveUp size={12} className="inline" />
+            </>
+          }
           value={metrics.best_interpretability > 0 ? metrics.best_interpretability.toFixed(4) : "—"}
           dimmed={metrics.best_interpretability === 0}
         />

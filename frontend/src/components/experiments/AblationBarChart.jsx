@@ -7,12 +7,13 @@ import {
   CHART_CONFIG,
 } from "@/utils/chartTheme.js";
 
-const AblationBarChart = ({ masterMetrics, single, two, gaOnly }) => {
+const AblationBarChart = ({ masterMetrics, single, two, gaOnly, randomSearch }) => {
   const configs = [
     { label: "Full GA+BO", metrics: masterMetrics },
     { label: "GA-Only", metrics: gaOnly },
     { label: "2-Objective", metrics: two },
     { label: "Single-Obj", metrics: single },
+    { label: "Random", metrics: randomSearch },
   ].filter((c) => c.metrics != null);
 
   if (configs.length === 0) {

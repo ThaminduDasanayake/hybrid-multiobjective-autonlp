@@ -227,18 +227,6 @@ def delete_job_data(job_id: str):
     return {"message": "Job deleted"}
 
 
-@app.post("/api/jobs/{job_id}/resume", status_code=200)
-def resume_job(job_id: str):
-    """Resume a terminated or failed job from its checkpoint."""
-    success = _job_manager.resume_job(job_id)
-    if not success:
-        raise HTTPException(
-            status_code=400,
-            detail="Could not resume job — check that config.json exists and the job is not already running",
-        )
-    return {"message": "Job resumed"}
-
-
 @app.get("/api/jobs/{job_id}/logs")
 def get_job_logs(
     job_id: str,
@@ -254,7 +242,7 @@ def get_job_logs(
 class AblationConfig(BaseModel):
     mode: str = Field(
         default="multi_3d",
-        description="Optimization mode: single_f1 | multi_2d | multi_3d",
+        description="Optimization mode: single_f1 | multi_2d | multi_3d | random_search",
     )
     disable_bo: bool = Field(default=False, description="Disable Bayesian optimization")
     parent_job_id: str = Field(..., description="Job ID whose config to inherit")
@@ -263,46 +251,46 @@ class AblationConfig(BaseModel):
 # ---------------------------------------------------------------------- ablation routes
 
 
+def _effective_mode(mode: str, disable_bo: bool) -> str:
+    """Map (mode, disable_bo) to the canonical ablation filename stem."""
+    if mode == "random_search":
+        return "random_search"
+    return "ga_only" if disable_bo else mode
+
+
 @app.get("/api/ablations")
 def get_ablations():
     """
-    Return metrics from all completed ablation studies found in results/ablations/.
+    Return metrics from all completed ablation studies.
 
-    Each entry in the returned dict is keyed by ``{mode}_{parent_job_id}``
-    (or ``ga_only_{parent_job_id}`` when disable_bo=True) so the frontend
-    can look up ablation results scoped to a specific parent run.
+    Scans ``jobs/*/ablations/*.json`` (each ablation is nested inside its
+    parent job directory).  Each entry in the returned dict is keyed by
+    ``{effective_mode}_{parent_job_id}`` so the frontend can look up
+    ablation results scoped to a specific parent run.
     """
-    ablations_dir = Path(_BACKEND_ROOT) / "results" / "ablations"
+    jobs_dir = Path(_BACKEND_ROOT) / "jobs"
     result: dict = {}
 
-    if not ablations_dir.is_dir():
+    if not jobs_dir.is_dir():
         return result
 
-    for json_file in sorted(ablations_dir.glob("*.json")):
+    for json_file in sorted(jobs_dir.glob("*/ablations/*.json")):
         try:
+            parent_job_id = json_file.parent.parent.name
+            eff_mode = json_file.stem  # e.g. "single_f1", "ga_only", "random_search"
+
             with open(json_file) as f:
                 data = json.load(f)
 
-            mode = data.get("mode", "unknown")
-            dataset = data.get("dataset", "unknown")
-            parent_job_id = data.get("parent_job_id")
-            # disable_bo may be at the top level (API worker) or nested inside
-            # config (run_ablations.py CLI).
-            disable_bo = data.get(
-                "disable_bo", data.get("config", {}).get("disable_bo", False)
-            )
-
-            if parent_job_id:
-                key = f"{'ga_only' if disable_bo else mode}_{parent_job_id}"
-            else:
-                # Legacy: old files keyed by dataset (won't match new frontend lookups)
-                key = f"{'ga_only' if disable_bo else mode}_{dataset}"
+            key = f"{eff_mode}_{parent_job_id}"
 
             result[key] = {
-                "mode": mode,
-                "dataset": dataset,
+                "mode": data.get("mode", eff_mode),
+                "dataset": data.get("dataset", "unknown"),
                 "parent_job_id": parent_job_id,
-                "disable_bo": disable_bo,
+                "disable_bo": data.get(
+                    "disable_bo", data.get("config", {}).get("disable_bo", False)
+                ),
                 "status": data.get("status", "completed"),
                 "metrics": data.get("metrics", {}),
                 "runtime_seconds": data.get("runtime_seconds"),
@@ -312,15 +300,6 @@ def get_ablations():
             continue
 
     return result
-
-
-def _ablation_key(mode: str, disable_bo: bool, parent_job_id: str) -> str:
-    """Deterministic key matching the worker's output filename convention."""
-    parts = ["ablation", mode]
-    if disable_bo:
-        parts.append("nobo")
-    parts.append(parent_job_id)
-    return "_".join(parts)
 
 
 @app.post("/api/ablations", status_code=202)
@@ -336,20 +315,26 @@ def start_ablation(config: AblationConfig):
     with status "already_queued".
 
     Returns immediately (HTTP 202 Accepted).  The worker saves its result to
-    results/ablations/ when finished.  Call GET /api/ablations to check for
-    new results.
+    ``jobs/{parent_job_id}/ablations/`` when finished.  Call GET /api/ablations
+    to check for new results.
     """
     from api.worker import run_ablation
 
-    config_path = Path(_BACKEND_ROOT) / "jobs" / config.parent_job_id / "config.json"
+    pid = config.parent_job_id
+    if not pid or "/" in pid or "\\" in pid or pid.startswith("."):
+        raise HTTPException(status_code=400, detail="Invalid parent_job_id")
+
+    config_path = Path(_BACKEND_ROOT) / "jobs" / pid / "config.json"
     if not config_path.is_file():
         raise HTTPException(status_code=404, detail="Parent job not found")
 
-    key = _ablation_key(config.mode, config.disable_bo, config.parent_job_id)
+    eff_mode = _effective_mode(config.mode, config.disable_bo)
+    running_key = f"{eff_mode}_{config.parent_job_id}"
 
-    # Check for an existing result file.
-    ablations_dir = Path(_BACKEND_ROOT) / "results" / "ablations"
-    result_file = ablations_dir / f"{key}.json"
+    # Check for an existing result file (nested inside parent job directory).
+    result_file = (
+        Path(_BACKEND_ROOT) / "jobs" / config.parent_job_id / "ablations" / f"{eff_mode}.json"
+    )
     if result_file.is_file():
         try:
             with open(result_file) as f:
@@ -370,7 +355,7 @@ def start_ablation(config: AblationConfig):
             pass  # Malformed file — allow re-submission.
 
     # Reject if this exact ablation is already in-flight.
-    if key in _running_ablations:
+    if running_key in _running_ablations:
         return {
             "status": "already_queued",
             "mode": config.mode,
@@ -381,11 +366,11 @@ def start_ablation(config: AblationConfig):
     with open(config_path) as f:
         parent = json.load(f)
 
-    _running_ablations.add(key)
+    _running_ablations.add(running_key)
 
     def _on_done(_future):
         try:
-            _running_ablations.discard(key)
+            _running_ablations.discard(running_key)
         except Exception:
             pass
 

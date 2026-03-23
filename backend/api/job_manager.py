@@ -118,22 +118,11 @@ class JobManager:
 
     def create_job(self, config: dict[str, Any]) -> str:
         """Create a new AutoML job, write its config, and submit it to the executor."""
-        import shutil
-
         from api.worker import run_automl_job
 
         job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
         job_dir = self._get_job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
-
-        # Clear any stale checkpoint so ResultStore.load_checkpoint() starts fresh.
-        # Without this, a reused job_id would silently replay cached evaluations,
-        # causing the GA to finish in milliseconds with sentinel objective_ranges.
-        checkpoint_dir = job_dir / "checkpoints"
-        if checkpoint_dir.exists():
-            shutil.rmtree(checkpoint_dir)
-            logger.info(f"Cleared stale checkpoint directory for {job_id}")
-        checkpoint_dir.mkdir(parents=True)
 
         with open(job_dir / "config.json", "w") as f:
             json.dump(config, f, indent=2)
@@ -189,43 +178,6 @@ class JobManager:
         logger.info(f"Job {job_id} marked as terminated")
         return True
 
-    def resume_job(self, job_id: str) -> bool:
-        """Resume a stopped or failed job from its checkpoint.
-
-        Returns False if the config is missing or the job is already running.
-        """
-        from api.worker import run_automl_job
-
-        job_dir = self._get_job_dir(job_id)
-        if not (job_dir / "config.json").exists():
-            logger.error(f"Cannot resume {job_id}: config.json not found")
-            return False
-
-        status = self.get_status(job_id)
-        if not status:
-            logger.error(f"Cannot resume {job_id}: status not found")
-            return False
-        if status.get("status") == "running":
-            logger.warning(f"Job {job_id} is already running; ignoring resume")
-            return False
-
-        stop_file = job_dir / "stop.signal"
-        if stop_file.exists():
-            stop_file.unlink()
-
-        status["status"] = "running"
-        status["message"] = "Resuming from checkpoint..."
-        self.update_status(job_id, status)
-
-        future = _executor.submit(
-            run_automl_job,
-            job_id,
-            str(self.jobs_dir.resolve()),
-            _BACKEND_ROOT,
-        )
-        _futures[job_id] = future
-        logger.info(f"Resumed job {job_id}")
-        return True
 
     def delete_job(self, job_id: str) -> bool:
         """Permanently delete a job's data from disk.
@@ -261,13 +213,6 @@ class JobManager:
         except OSError as e:
             logger.error(f"Failed to delete job directory for {job_id}: {e}")
             return False
-
-        results_dir = Path(_BACKEND_ROOT) / "results" / job_id
-        try:
-            if results_dir.exists():
-                shutil.rmtree(results_dir)
-        except OSError as e:
-            logger.warning(f"Failed to delete results directory for {job_id}: {e}")
 
         log_path = Path(_BACKEND_ROOT) / "logs" / f"run_{job_id}.log"
         try:
