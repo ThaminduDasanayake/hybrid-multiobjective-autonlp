@@ -94,14 +94,18 @@ const JobDetail = () => {
   const masterRuntime = jobData?.runtime_seconds ?? null;
 
   const d = ablationsData ?? {};
-  const single = d[`single_f1_${jobId}`]?.metrics ?? null;
-  const singleRT = d[`single_f1_${jobId}`]?.runtime_seconds ?? null;
-  const two = d[`multi_2d_${jobId}`]?.metrics ?? null;
-  const twoRT = d[`multi_2d_${jobId}`]?.runtime_seconds ?? null;
-  const gaOnly = d[`ga_only_${jobId}`]?.metrics ?? null;
-  const gaOnlyRT = d[`ga_only_${jobId}`]?.runtime_seconds ?? null;
-  const randomSearch = d[`random_search_${jobId}`]?.metrics ?? null;
-  const randomSearchRT = d[`random_search_${jobId}`]?.runtime_seconds ?? null;
+  const singleData = d[`single_f1_${jobId}`];
+  const single = singleData?.status === "completed" ? singleData.metrics : null;
+  const singleRT = singleData?.status === "completed" ? singleData.runtime_seconds : null;
+  const twoData = d[`multi_2d_${jobId}`];
+  const two = twoData?.status === "completed" ? twoData.metrics : null;
+  const twoRT = twoData?.status === "completed" ? twoData.runtime_seconds : null;
+  const gaOnlyData = d[`ga_only_${jobId}`];
+  const gaOnly = gaOnlyData?.status === "completed" ? gaOnlyData.metrics : null;
+  const gaOnlyRT = gaOnlyData?.status === "completed" ? gaOnlyData.runtime_seconds : null;
+  const randomSearchData = d[`random_search_${jobId}`];
+  const randomSearch = randomSearchData?.status === "completed" ? randomSearchData.metrics : null;
+  const randomSearchRT = randomSearchData?.status === "completed" ? randomSearchData.runtime_seconds : null;
 
   // Scroll to top when navigating to a new job
   useEffect(() => {

@@ -218,27 +218,38 @@ class EvolutionarySearch:
                 f"(pop={self.population_size} x gen={self.n_generations})"
             )
 
-            gen_start_time = time.time()
+            batch_start_time = time.time()
+            batch_penalties = 0
             for i, ind in enumerate(population):
                 pseudo_gen = i // self.population_size
                 fit = self.toolbox.evaluate(ind, generation=pseudo_gen)
                 ind.fitness.values = fit
 
-                # Fire progress callback every population_size evaluations
-                if callback and (i + 1) % self.population_size == 0:
-                    pseudo_gen = (i + 1) // self.population_size
-                    callback(
-                        {
-                            "current_generation": pseudo_gen,
-                            "total_generations": self.n_generations,
-                            "message": f"Random search: evaluated {i + 1}/{total_budget}",
-                            "progress": int(((i + 1) / total_budget) * 100),
-                        }
-                    )
+                if fit == PENALTY_FITNESS:
+                    batch_penalties += 1
 
-            gen_time = time.time() - gen_start_time
-            self.result_store.add_time_stats(generation_time=gen_time)
-            logger.info(f"Random search completed in {format_time(gen_time)}")
+                # End of a pseudo-generation batch
+                if (i + 1) % self.population_size == 0:
+                    batch_time = time.time() - batch_start_time
+                    self.result_store.add_time_stats(generation_time=batch_time)
+                    self.penalty_history.append(batch_penalties)
+
+                    if callback:
+                        pseudo_gen = (i + 1) // self.population_size
+                        callback(
+                            {
+                                "current_generation": pseudo_gen,
+                                "total_generations": self.n_generations,
+                                "message": f"Random search: evaluated {i + 1}/{total_budget}",
+                                "progress": int(((i + 1) / total_budget) * 100),
+                            }
+                        )
+
+                    # Reset for next batch
+                    batch_start_time = time.time()
+                    batch_penalties = 0
+
+            logger.info(f"Random search completed ({total_budget} evaluations)")
             return
 
         # HOF is used for early stopping only — final Pareto front is
