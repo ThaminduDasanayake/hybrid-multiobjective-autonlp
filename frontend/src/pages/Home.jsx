@@ -14,24 +14,7 @@ import { useStore } from "../store";
 import JobSelectorTable from "../components/JobSelectorTable";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
-
-const OBJECTIVES = [
-  {
-    icon: Target,
-    title: "F1 Score",
-    description: "Maximises classification accuracy using macro-averaged F1 across all classes",
-  },
-  {
-    icon: Clock,
-    title: "Latency",
-    description: "Minimises inference time to meet real-time deployment constraints",
-  },
-  {
-    icon: Eye,
-    title: "Interpretability",
-    description: "Favours transparent, explainable models over opaque black-box classifiers",
-  },
-];
+import { OBJECTIVES } from "@/constants.js";
 
 const Home = () => {
   const navigate = useNavigate();
@@ -66,17 +49,14 @@ const Home = () => {
         </div>
         <p className="text-muted-foreground max-w-2xl">
           A multi-objective AutoML system for text classification. T-AutoNLP automates the
-          construction of end-to-end NLP pipelines — exploring combinations of vectorisers, scalers,
-          dimensionality reduction, and classifiers — using NSGA-II genetic algorithms and Bayesian
+          construction of end-to-end NLP pipelines, exploring combinations of vectorisers, scalers,
+          dimensionality reduction, and classifiers, using NSGA-II genetic algorithms and Bayesian
           optimisation to find Pareto-optimal trade-offs across three objectives simultaneously.
         </p>
 
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
           {OBJECTIVES.map(({ icon: Icon, title, description }) => (
-            <div
-              key={title}
-              className="rounded-lg border border-border bg-card px-4 py-3"
-            >
+            <div key={title} className="rounded-lg border border-border bg-card px-4 py-3">
               <div className="flex items-center gap-2 mb-1">
                 <Icon size={15} className="text-primary" />
                 <span className="text-sm font-semibold text-foreground">{title}</span>
@@ -89,7 +69,7 @@ const Home = () => {
         <div className="mt-6 flex justify-center">
           <Button onClick={() => navigate("/run")} size="lg">
             <Rocket size={16} />
-            Start Experiment
+            Start Optimization
           </Button>
         </div>
       </div>

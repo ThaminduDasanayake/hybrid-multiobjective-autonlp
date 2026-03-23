@@ -26,6 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from api.db import get_db, get_db_name, get_mongo_uri
 from api.job_manager import JobManager, _executor
 
 # Track in-flight ablation tasks so we can reject duplicate submissions.
@@ -103,59 +104,27 @@ def create_job(config: JobConfig):
 
 @app.get("/api/jobs")
 def list_jobs():
-    """Return all jobs sorted by start time (newest first), enriched with dataset_name from config.json."""
-    jobs = _job_manager.list_jobs()
-    jobs_dir = Path(_BACKEND_ROOT) / "jobs"
-    for job_id, status in jobs.items():
-        config_path = jobs_dir / job_id / "config.json"
-        if config_path.exists():
-            try:
-                with open(config_path) as f:
-                    cfg = json.load(f)
-                status["dataset_name"] = cfg.get("dataset_name", "")
-            except Exception:
-                pass
-    return jobs
-
-
-@app.get("/api/jobs/{job_id}/status")
-def get_job_status(job_id: str):
-    """Poll the current status of a job."""
-    status = _job_manager.get_status(job_id)
-    if status is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return status
+    """Return all jobs sorted by start time (newest first), enriched with dataset_name."""
+    return _job_manager.list_jobs()
 
 
 @app.get("/api/jobs/{job_id}/result")
 def get_job_result(job_id: str):
-    """Return the result.json for a completed job, enriched with config.json."""
+    """Return the result for a completed job, with config attached."""
     result = _job_manager.get_result(job_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Result not found")
-    config_path = Path(_BACKEND_ROOT) / "jobs" / job_id / "config.json"
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                result["config"] = json.load(f)
-        except Exception:
-            pass
     return result
 
 
-@app.get("/api/jobs/{job_id}/hypervolume-history")
-def get_hypervolume_history(job_id: str):
-    """Return hypervolume indicator at each GA generation for convergence plotting.
+def _compute_hv_history(result: dict) -> list:
+    """Compute per-generation hypervolume history (CPU-bound, runs in thread pool).
 
     Iterates over the job's search_history, building a cumulative solution set
     per generation, computing the Pareto front and its hypervolume at each step.
     Global objective bounds (from all solutions) are used so hypervolume values
     are consistently normalised across generations.
     """
-    result = _job_manager.get_result(job_id)
-    if result is None:
-        raise HTTPException(status_code=404, detail="Result not found")
-
     search_history = result.get("search_history", [])
     if not search_history:
         return []
@@ -205,6 +174,15 @@ def get_hypervolume_history(job_id: str):
     return hv_history
 
 
+@app.get("/api/jobs/{job_id}/hypervolume-history")
+async def get_hypervolume_history(job_id: str):
+    """Return hypervolume indicator at each GA generation for convergence plotting."""
+    result = await asyncio.to_thread(_job_manager.get_result, job_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Result not found")
+    return await asyncio.to_thread(_compute_hv_history, result)
+
+
 @app.delete("/api/jobs/{job_id}", status_code=200)
 def terminate_job(job_id: str):
     """Terminate a running or queued job."""
@@ -227,15 +205,6 @@ def delete_job_data(job_id: str):
     return {"message": "Job deleted"}
 
 
-@app.get("/api/jobs/{job_id}/logs")
-def get_job_logs(
-    job_id: str,
-    lines: int = Query(default=100, ge=1, le=1000, description="Number of tail lines"),
-):
-    """Return the last N lines of the job's log file."""
-    return {"logs": _job_manager.get_logs(job_id, lines)}
-
-
 # ---------------------------------------------------------------------- ablation schema
 
 
@@ -252,52 +221,51 @@ class AblationConfig(BaseModel):
 
 
 def _effective_mode(mode: str, disable_bo: bool) -> str:
-    """Map (mode, disable_bo) to the canonical ablation filename stem."""
+    """Map (mode, disable_bo) to the canonical ablation key."""
     if mode == "random_search":
         return "random_search"
     return "ga_only" if disable_bo else mode
 
 
 @app.get("/api/ablations")
-def get_ablations():
+def get_ablations(
+    parent_job_id: str | None = Query(default=None, description="Filter to a single parent job"),
+):
     """
     Return metrics from all completed ablation studies.
 
-    Scans ``jobs/*/ablations/*.json`` (each ablation is nested inside its
-    parent job directory).  Each entry in the returned dict is keyed by
+    Reads the ``ablations`` nested object from job documents in MongoDB.
+    When ``parent_job_id`` is provided, only that single document is queried
+    (index lookup) instead of scanning every job.
+
+    Each entry in the returned dict is keyed by
     ``{effective_mode}_{parent_job_id}`` so the frontend can look up
     ablation results scoped to a specific parent run.
     """
-    jobs_dir = Path(_BACKEND_ROOT) / "jobs"
+    db = get_db()
     result: dict = {}
 
-    if not jobs_dir.is_dir():
-        return result
+    query: dict = {"ablations": {"$ne": {}}}
+    if parent_job_id:
+        query["_id"] = parent_job_id
 
-    for json_file in sorted(jobs_dir.glob("*/ablations/*.json")):
-        try:
-            parent_job_id = json_file.parent.parent.name
-            eff_mode = json_file.stem  # e.g. "single_f1", "ga_only", "random_search"
-
-            with open(json_file) as f:
-                data = json.load(f)
-
-            key = f"{eff_mode}_{parent_job_id}"
-
+    for doc in db.jobs.find(query, {"ablations": 1}):
+        doc_id = doc["_id"]
+        for eff_mode, ablation in doc.get("ablations", {}).items():
+            if not ablation:
+                continue
+            key = f"{eff_mode}_{doc_id}"
             result[key] = {
-                "mode": data.get("mode", eff_mode),
-                "dataset": data.get("dataset", "unknown"),
-                "parent_job_id": parent_job_id,
-                "disable_bo": data.get(
-                    "disable_bo", data.get("config", {}).get("disable_bo", False)
+                "mode": ablation.get("mode", eff_mode),
+                "dataset": ablation.get("dataset", "unknown"),
+                "parent_job_id": doc_id,
+                "disable_bo": ablation.get(
+                    "disable_bo", ablation.get("config", {}).get("disable_bo", False)
                 ),
-                "status": data.get("status", "completed"),
-                "metrics": data.get("metrics", {}),
-                "runtime_seconds": data.get("runtime_seconds"),
+                "status": ablation.get("status", "completed"),
+                "metrics": ablation.get("metrics", {}),
+                "runtime_seconds": ablation.get("runtime_seconds"),
             }
-        except Exception:
-            # Skip malformed files silently.
-            continue
 
     return result
 
@@ -308,15 +276,15 @@ def start_ablation(config: AblationConfig):
     Submit an ablation study to the ProcessPoolExecutor.
 
     The ablation inherits its full configuration (dataset, samples, population
-    size, etc.) from the parent job's saved config.json.
+    size, etc.) from the parent job's config stored in MongoDB.
 
     Idempotent: if a completed result already exists, returns 200 instead of
     re-submitting.  If the same ablation is already in-flight, returns 202
     with status "already_queued".
 
     Returns immediately (HTTP 202 Accepted).  The worker saves its result to
-    ``jobs/{parent_job_id}/ablations/`` when finished.  Call GET /api/ablations
-    to check for new results.
+    the parent job's ``ablations`` field in MongoDB when finished.  Call
+    GET /api/ablations to check for new results.
     """
     from api.worker import run_ablation
 
@@ -324,35 +292,26 @@ def start_ablation(config: AblationConfig):
     if not pid or "/" in pid or "\\" in pid or pid.startswith("."):
         raise HTTPException(status_code=400, detail="Invalid parent_job_id")
 
-    config_path = Path(_BACKEND_ROOT) / "jobs" / pid / "config.json"
-    if not config_path.is_file():
+    db = get_db()
+    parent_doc = db.jobs.find_one({"_id": pid}, {"config": 1, "ablations": 1})
+    if parent_doc is None:
         raise HTTPException(status_code=404, detail="Parent job not found")
 
     eff_mode = _effective_mode(config.mode, config.disable_bo)
     running_key = f"{eff_mode}_{config.parent_job_id}"
 
-    # Check for an existing result file (nested inside parent job directory).
-    result_file = (
-        Path(_BACKEND_ROOT) / "jobs" / config.parent_job_id / "ablations" / f"{eff_mode}.json"
-    )
-    if result_file.is_file():
-        try:
-            with open(result_file) as f:
-                existing = json.load(f)
-            # Only short-circuit if the previous run completed successfully.
-            # Failed results are allowed to be re-submitted (overwritten).
-            if existing.get("status", "completed") != "failed":
-                return JSONResponse(
-                    status_code=200,
-                    content={
-                        "status": "completed",
-                        "mode": config.mode,
-                        "parent_job_id": config.parent_job_id,
-                        "disable_bo": config.disable_bo,
-                    },
-                )
-        except Exception:
-            pass  # Malformed file — allow re-submission.
+    # Check for an existing ablation result in MongoDB.
+    existing = parent_doc.get("ablations", {}).get(eff_mode)
+    if existing and existing.get("status", "completed") != "failed":
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "completed",
+                "mode": config.mode,
+                "parent_job_id": config.parent_job_id,
+                "disable_bo": config.disable_bo,
+            },
+        )
 
     # Reject if this exact ablation is already in-flight.
     if running_key in _running_ablations:
@@ -363,29 +322,33 @@ def start_ablation(config: AblationConfig):
             "disable_bo": config.disable_bo,
         }
 
-    with open(config_path) as f:
-        parent = json.load(f)
+    parent_config = parent_doc["config"]
 
     _running_ablations.add(running_key)
 
-    def _on_done(_future):
-        try:
-            _running_ablations.discard(running_key)
-        except Exception:
-            pass
+    def _on_done(fut):
+        _running_ablations.discard(running_key)
+        exc = fut.exception()
+        if exc:
+            import logging
+            logging.getLogger("server").error(
+                f"Ablation {running_key} crashed: {exc}", exc_info=exc,
+            )
 
     future = _executor.submit(
         run_ablation,
         config.mode,
         config.parent_job_id,
-        parent["dataset_name"],
+        parent_config["dataset_name"],
         config.disable_bo,
-        parent.get("max_samples", 2000),
-        parent.get("population_size", 20),
-        parent.get("n_generations", 10),
-        parent.get("bo_calls", 15),
-        parent.get("seed", 42),
+        parent_config.get("max_samples", 2000),
+        parent_config.get("population_size", 20),
+        parent_config.get("n_generations", 10),
+        parent_config.get("bo_calls", 15),
+        parent_config.get("seed", 42),
         _BACKEND_ROOT,
+        get_mongo_uri(),
+        get_db_name(),
     )
     future.add_done_callback(_on_done)
 
@@ -427,12 +390,12 @@ async def stream_job(job_id: str, request: Request):
         last_payload_json: str | None = None
 
         while True:
-            # Client-disconnect check comes first — no point reading files if
+            # Client-disconnect check comes first — no point querying if
             # nobody is listening on the other end.
             if await request.is_disconnected():
                 break
 
-            # File I/O is synchronous; run it in the default thread-pool so we
+            # pymongo is synchronous; run it in the default thread-pool so we
             # never block the asyncio event loop.
             status = await asyncio.to_thread(_job_manager.get_status, job_id)
 

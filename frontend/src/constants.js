@@ -1,4 +1,24 @@
+import { Clock, Lightbulb, Target } from "lucide-react";
+
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
+export const OBJECTIVES = [
+  {
+    icon: Target,
+    title: "F1 Score",
+    description: "Maximises classification accuracy using macro-averaged F1 across all classes",
+  },
+  {
+    icon: Clock,
+    title: "Latency",
+    description: "Minimises inference time to meet real-time deployment constraints",
+  },
+  {
+    icon: Lightbulb,
+    title: "Interpretability",
+    description: "Favours transparent, explainable models over opaque black-box classifiers",
+  },
+];
 
 // Config Form
 export const DATASETS = [

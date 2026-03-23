@@ -8,8 +8,8 @@
  * work without CORS overhead.
  *
  * In production (Vercel) the proxy does not exist.  Set VITE_API_BASE_URL to
- * your backend's public URL (Ngrok tunnel or cloud VM) in the Vercel dashboard
- * or in .env.production, and every fetch/EventSource will use it automatically.
+ * your backend's public URL in the Vercel dashboard or in .env.production,
+ * and every fetch/EventSource will use it automatically.
  *
  * SSE streams
  * -----------
@@ -29,7 +29,7 @@ import { BASE_URL } from "@/constants.js";
  * @returns {string}
  */
 export function streamUrl(jobId) {
-  return `${BASE_URL}/api/jobs/${jobId}/stream?ngrok-skip-browser-warning=true`;
+  return `${BASE_URL}/api/jobs/${jobId}/stream`;
 }
 
 /**
@@ -45,7 +45,6 @@ async function _request(path, options = {}) {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      "ngrok-skip-browser-warning": "true",
       ...options.headers,
     },
   });
@@ -104,8 +103,8 @@ export function getJobs() {
 }
 
 /**
- * Fetch the result.json for a completed job.
- * Throws if the job has not finished or the result file is missing.
+ * Fetch the result for a completed job.
+ * Throws if the job has not finished or no result exists.
  *
  * @param {string} jobId
  * @returns {Promise<object>}
@@ -135,12 +134,15 @@ export function deleteJob(jobId) {
 }
 
 /**
- * Fetch metrics from all completed ablation studies.
+ * Fetch metrics from completed ablation studies.
+ * When parentJobId is provided, only ablations for that job are returned.
  *
+ * @param {string} [parentJobId]
  * @returns {Promise<Record<string, object>>}
  */
-export function getAblations() {
-  return _request("/api/ablations");
+export function getAblations(parentJobId) {
+  const params = parentJobId ? `?parent_job_id=${encodeURIComponent(parentJobId)}` : "";
+  return _request(`/api/ablations${params}`);
 }
 
 /**

@@ -1,48 +1,59 @@
 import Plot from "react-plotly.js";
 import { COLORS, CHART_LAYOUT, CHART_CONFIG_MINIMAL } from "@/utils/chartTheme.js";
 
-const GROUPS = [
-  {
-    key: "vectorizer",
-    label: "Vectorizer",
-    values: ["tfidf", "count"],
-    displayNames: { tfidf: "TF-IDF", count: "Count" },
-  },
-  {
-    key: "scaler",
-    label: "Scaler",
-    values: ["standard", "maxabs", "robust", null],
-    displayNames: { standard: "Standard", maxabs: "MaxAbs", robust: "Robust", null: "None" },
-  },
-  {
-    key: "dim_reduction",
-    label: "Dim Reduction",
-    values: ["pca", "select_k_best", null],
-    displayNames: { pca: "PCA", select_k_best: "SelectKBest", null: "None" },
-  },
+const GROUP_DEFS = [
+  { key: "vectorizer", label: "Vectorizer" },
+  { key: "scaler", label: "Scaler" },
+  { key: "dim_reduction", label: "Dim Reduction" },
 ];
+
+const DISPLAY_NAMES = {
+  tfidf: "TF-IDF",
+  count: "Count",
+  standard: "Standard",
+  maxabs: "MaxAbs",
+  robust: "Robust",
+  pca: "PCA",
+  select_k_best: "SelectKBest",
+};
 
 const countBy = (solutions, key, value) =>
   solutions.filter((s) => (s[key] ?? null) === value).length;
+
+/** Extract unique values for a key from the solution set, sorted with null last. */
+const uniqueValues = (solutions, key) => {
+  const seen = new Set(solutions.map((s) => s[key] ?? null));
+  return [...seen].sort((a, b) => {
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return String(a).localeCompare(String(b));
+  });
+};
 
 const PipelineBreakdownChart = ({ allSolutions = [], paretoFront = [] }) => {
   if (allSolutions.length === 0) {
     return <div className="chart-empty h-40">No solutions available.</div>;
   }
 
+  // Derive groups from data — only show values that actually appear in solutions.
+  const groups = GROUP_DEFS.map((def) => ({
+    ...def,
+    values: uniqueValues(allSolutions, def.key),
+  })).filter((g) => g.values.length > 0);
+
   const allTraces = [];
   const annotations = [];
   const shapes = [];
 
-  const domainStep = 1 / GROUPS.length;
+  const domainStep = 1 / groups.length;
   const gap = 0.06;
 
-  GROUPS.forEach((group, gi) => {
+  groups.forEach((group, gi) => {
     const xaxis = gi === 0 ? "x" : `x${gi + 1}`;
     const domainStart = gi * domainStep + gap / 2;
     const domainEnd = (gi + 1) * domainStep - gap / 2;
 
-    const xLabels = group.values.map((v) => group.displayNames[v] ?? String(v));
+    const xLabels = group.values.map((v) => DISPLAY_NAMES[v] ?? (v === null ? "None" : String(v)));
     const allCounts = group.values.map((v) => countBy(allSolutions, group.key, v));
     const paretoCounts = group.values.map((v) => countBy(paretoFront, group.key, v));
 
@@ -80,7 +91,7 @@ const PipelineBreakdownChart = ({ allSolutions = [], paretoFront = [] }) => {
       font: { size: 12, color: COLORS.slate400 },
     });
 
-    if (gi < GROUPS.length - 1) {
+    if (gi < groups.length - 1) {
       shapes.push({
         type: "line",
         xref: "paper",
@@ -95,7 +106,7 @@ const PipelineBreakdownChart = ({ allSolutions = [], paretoFront = [] }) => {
   });
 
   const xaxisConfigs = {};
-  GROUPS.forEach((_, gi) => {
+  groups.forEach((_, gi) => {
     const key = gi === 0 ? "xaxis" : `xaxis${gi + 1}`;
     const domainStart = gi * domainStep + gap / 2;
     const domainEnd = (gi + 1) * domainStep - gap / 2;

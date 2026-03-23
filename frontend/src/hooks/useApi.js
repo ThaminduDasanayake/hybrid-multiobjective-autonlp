@@ -4,7 +4,7 @@
  * Query key hierarchy
  *   ["jobs"]                  — full job list (shared between History and Experiments pages)
  *   ["job-result", jobId]     — result.json for one completed job
- *   ["ablations"]             — all ablation study results
+ *   ["ablations", parentJobId] — ablation study results (scoped to parent job or "all")
  *
  * Mutation hooks invalidate the relevant query keys on success so that
  * dependent components re-render automatically without manual state updates.
@@ -64,18 +64,21 @@ export function useJobResult(jobId) {
 }
 
 /**
- * Fetches all ablation study results.
+ * Fetches ablation study results.
+ *
+ * When `parentJobId` is provided, only ablations for that job are fetched
+ * (single-document lookup instead of a full collection scan).
  *
  * Pass `refetchInterval` to enable automatic polling while ablation jobs are
  * still running (Experiments uses this while queued jobs are pending).
  *
- * @param {{ refetchInterval?: number | false }} [opts]
+ * @param {{ refetchInterval?: number | false, parentJobId?: string }} [opts]
  * @returns {import("@tanstack/react-query").UseQueryResult<Record<string, object>>}
  */
-export function useAblations({ refetchInterval = false } = {}) {
+export function useAblations({ refetchInterval = false, parentJobId } = {}) {
   return useQuery({
-    queryKey: ["ablations"],
-    queryFn: getAblations,
+    queryKey: ["ablations", parentJobId ?? "all"],
+    queryFn: () => getAblations(parentJobId),
     staleTime: 30_000,
     refetchInterval,
   });

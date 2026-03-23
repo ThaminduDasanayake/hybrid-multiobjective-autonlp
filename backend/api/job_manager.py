@@ -2,21 +2,19 @@
 Job manager for the FastAPI backend.
 
 Runs AutoML jobs in a ProcessPoolExecutor so they never block the async
-event loop.  All job state lives on disk (file-based IPC) so the server
-can be restarted without losing in-progress job metadata.
+event loop.  All job state lives in MongoDB — the local filesystem is
+only used for Python log files and dataset caches.
 
 IPC:
-  - Worker writes progress to  jobs/{job_id}/status.json  on every callback.
-  - FastAPI routes read that file on demand (SSE polling from the React client).
-  - Worker writes final results to  jobs/{job_id}/result.json  on completion.
+  - Worker writes progress to  MongoDB (jobs collection)  on every callback.
+  - FastAPI routes read that document on demand (SSE polling from the React client).
+  - Worker writes final results to the same document on completion.
 
 Cancellation (2-tier, cooperative):
-  1. Write stop.signal file  → progress_callback raises _TerminationRequested.
-  2. future.cancel()         → cancels queued-but-not-yet-started jobs.
+  1. Set stop_requested=True in MongoDB → progress_callback raises _TerminationRequested.
+  2. future.cancel()                    → cancels queued-but-not-yet-started jobs.
 """
 
-import json
-import os
 import time
 from concurrent.futures import Future, ProcessPoolExecutor
 from datetime import datetime
@@ -25,6 +23,8 @@ from typing import Any
 from uuid import uuid4
 
 from utils.logger import get_logger
+
+from api.db import get_db, get_db_name, get_mongo_uri
 
 logger = get_logger("job_manager")
 
@@ -38,112 +38,103 @@ _futures: dict[str, Future] = {}
 # reconstruct sys.path under the 'spawn' start method (macOS default, Python 3.12+).
 _BACKEND_ROOT = str(Path(__file__).parent.parent.resolve())
 
+# Fields excluded from status reads (large payload fields).
+_STATUS_PROJECTION = {"result": 0, "ablations": 0}
+
 
 class JobManager:
-    """Manages background AutoML jobs using file-based state and a ProcessPoolExecutor."""
+    """Manages background AutoML jobs using MongoDB and a ProcessPoolExecutor."""
 
-    def __init__(self, jobs_dir: str = "jobs") -> None:
-        self.jobs_dir = Path(jobs_dir)
-        self.jobs_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self) -> None:
+        self.db = get_db()
+        self.jobs = self.db.jobs
 
-    # ------------------------------------------------------------------ helpers
-
-    def _get_job_dir(self, job_id: str) -> Path:
-        return self.jobs_dir / job_id
-
-    # ------------------------------------------------------------------ file I/O
+    # ------------------------------------------------------------------ reads
 
     def get_status(self, job_id: str) -> dict[str, Any] | None:
-        """Read jobs/{job_id}/status.json. Returns None if missing or unreadable."""
-        status_path = self._get_job_dir(job_id) / "status.json"
-        if not status_path.exists():
-            return None
-        try:
-            with open(status_path) as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error reading status for {job_id}: {e}")
-            return None
+        """Read the current status of a job from MongoDB.
 
-    def update_status(self, job_id: str, status: dict[str, Any]) -> None:
-        """Atomically write status to jobs/{job_id}/status.json.
-
-        Uses a temp file + os.replace() so a concurrent reader never sees a
-        partial write.
+        Returns a flat dict with status fields (excluding the large result
+        and ablations payloads), or None if the job doesn't exist.
         """
-        import tempfile
-
-        status_path = self._get_job_dir(job_id) / "status.json"
-        status["last_updated"] = time.time()
-        try:
-            fd, tmp_path = tempfile.mkstemp(dir=status_path.parent, suffix=".tmp")
-            with os.fdopen(fd, "w") as f:
-                json.dump(status, f, indent=2)
-            os.replace(tmp_path, status_path)
-        except Exception as e:
-            logger.exception(f"Error updating status for {job_id}: {e}")
-            if "tmp_path" in locals() and os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
+        doc = self.jobs.find_one({"_id": job_id}, _STATUS_PROJECTION)
+        if doc is None:
+            return None
+        doc["job_id"] = doc.pop("_id")
+        doc.pop("config", None)          # not needed in status response
+        doc.pop("stop_requested", None)  # internal field, not for frontend
+        return doc
 
     def get_result(self, job_id: str) -> dict[str, Any] | None:
-        """Read jobs/{job_id}/result.json. Returns None if missing or unreadable."""
-        result_path = self._get_job_dir(job_id) / "result.json"
-        if not result_path.exists():
+        """Read the result for a completed job from MongoDB.
+
+        Returns the result dict with config attached, or None if the job
+        doesn't exist or hasn't completed yet.
+        """
+        doc = self.jobs.find_one({"_id": job_id}, {"result": 1, "config": 1})
+        if doc is None or doc.get("result") is None:
             return None
-        try:
-            with open(result_path) as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error reading result for {job_id}: {e}")
-            return None
+        result = doc["result"]
+        result["config"] = doc.get("config")
+        return result
 
     def list_jobs(self) -> dict[str, dict[str, Any]]:
-        """List all job directories, sorted by start_time descending."""
-        if not self.jobs_dir.exists():
-            return {}
-        jobs = {}
-        for job_dir in self.jobs_dir.iterdir():
-            if job_dir.is_dir():
-                status = self.get_status(job_dir.name)
-                if status:
-                    jobs[job_dir.name] = status
-        return dict(
-            sorted(jobs.items(), key=lambda x: x[1].get("start_time", 0), reverse=True)
-        )
+        """List all jobs sorted by start_time descending.
+
+        Returns a dict keyed by job_id, each value containing status fields
+        enriched with dataset_name from the stored config.
+        """
+        cursor = self.jobs.find(
+            {},
+            _STATUS_PROJECTION,  # exclusion-only: {"result": 0, "ablations": 0}
+        ).sort("start_time", -1)
+
+        jobs: dict[str, dict[str, Any]] = {}
+        for doc in cursor:
+            job_id = doc.pop("_id")
+            # Extract dataset_name from nested config and flatten it.
+            config = doc.pop("config", {})
+            doc["dataset_name"] = config.get("dataset_name", "")
+            doc.pop("stop_requested", None)  # internal field, not for frontend
+            doc["job_id"] = job_id
+            jobs[job_id] = doc
+        return jobs
 
     # ------------------------------------------------------------------ process management
 
     def create_job(self, config: dict[str, Any]) -> str:
-        """Create a new AutoML job, write its config, and submit it to the executor."""
+        """Create a new AutoML job and submit it to the executor."""
         from api.worker import run_automl_job
 
         job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
-        job_dir = self._get_job_dir(job_id)
-        job_dir.mkdir(parents=True, exist_ok=True)
 
-        with open(job_dir / "config.json", "w") as f:
-            json.dump(config, f, indent=2)
-
-        status = {
-            "job_id": job_id,
+        document = {
+            "_id": job_id,
+            "config": config,
             "status": "created",
             "start_time": time.time(),
+            "last_updated": time.time(),
             "progress": 0,
             "current_generation": 0,
             "total_generations": config.get("n_generations", 10),
             "message": "Initializing...",
             "best_f1": 0.0,
+            "best_latency_ms": 0.0,
+            "best_interpretability": 0.0,
+            "cache_hit_rate": 0.0,
+            "total_evaluated": 0,
+            "result": None,
+            "ablations": {},
+            "stop_requested": False,
         }
-        self.update_status(job_id, status)
+        self.jobs.insert_one(document)
 
         future = _executor.submit(
             run_automl_job,
             job_id,
-            str(self.jobs_dir.resolve()),
             _BACKEND_ROOT,
+            get_mongo_uri(),
+            get_db_name(),
         )
         _futures[job_id] = future
         logger.info(f"Submitted job {job_id} to ProcessPoolExecutor")
@@ -152,42 +143,38 @@ class JobManager:
     def terminate_job(self, job_id: str) -> bool:
         """Stop a job cooperatively, or cancel it if still queued.
 
-        1. Write stop.signal  → worker's progress_callback detects it and exits cleanly.
-        2. future.cancel()    → cancels the job if it hasn't started yet.
+        1. Set stop_requested=True in MongoDB → worker detects and exits cleanly.
+        2. future.cancel()                    → cancels the job if queued.
 
         Returns True if the job was found and marked terminated.
         """
-        stop_file = self._get_job_dir(job_id) / "stop.signal"
-        try:
-            stop_file.touch()
-        except Exception as e:
-            logger.warning(f"Could not write stop.signal for {job_id}: {e}")
+        result = self.jobs.update_one(
+            {"_id": job_id},
+            {"$set": {
+                "stop_requested": True,
+                "status": "terminated",
+                "message": "Job was manually terminated",
+                "last_updated": time.time(),
+            }},
+        )
+        if result.matched_count == 0:
+            logger.error(f"No job found for {job_id}")
+            return False
 
         future = _futures.get(job_id)
         if future:
             future.cancel()
 
-        status = self.get_status(job_id)
-        if not status:
-            logger.error(f"No status found for job {job_id}")
-            return False
-
-        status["status"] = "terminated"
-        status["message"] = "Job was manually terminated"
-        self.update_status(job_id, status)
         logger.info(f"Job {job_id} marked as terminated")
         return True
 
-
     def delete_job(self, job_id: str) -> bool:
-        """Permanently delete a job's data from disk.
+        """Permanently delete a job from MongoDB.
 
         Only jobs in a terminal state (completed, failed, terminated) can be
         deleted.  Returns True on success, False if the job doesn't exist or
         is still active.
         """
-        import shutil
-
         if not job_id or "/" in job_id or "\\" in job_id or job_id.startswith("."):
             logger.warning(f"Invalid job_id format: {job_id}")
             return False
@@ -206,14 +193,9 @@ class JobManager:
                 logger.warning(f"Worker for {job_id} did not finish cleanly within timeout")
                 return False
 
-        job_dir = self._get_job_dir(job_id)
-        try:
-            if job_dir.exists():
-                shutil.rmtree(job_dir)
-        except OSError as e:
-            logger.error(f"Failed to delete job directory for {job_id}: {e}")
-            return False
+        self.jobs.delete_one({"_id": job_id})
 
+        # Clean up the log file (logs remain on the filesystem).
         log_path = Path(_BACKEND_ROOT) / "logs" / f"run_{job_id}.log"
         try:
             if log_path.exists():

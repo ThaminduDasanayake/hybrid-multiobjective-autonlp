@@ -8,8 +8,8 @@ so Python's pickle mechanism can locate them under the 'spawn' start method
 All heavy ML imports are deferred inside the function bodies so they are only
 loaded in the worker process, never in the main FastAPI process.
 
-IPC: file-based (status.json / result.json) — no multiprocessing queues.
-Cancellation: cooperative via stop.signal file checked in progress_callback.
+IPC: MongoDB (jobs collection) — worker creates its own MongoClient after spawn.
+Cancellation: cooperative via stop_requested field checked in progress_callback.
 """
 
 from contextlib import contextmanager
@@ -69,16 +69,22 @@ def _job_file_logging(job_id: str, backend_root_str: str):
 
 
 def _format_metrics(raw: dict | None) -> dict:
-    """Normalise ParetoAnalyzer output into the flat shape the UI expects."""
+    """Normalise ParetoAnalyzer output into the flat shape the UI expects.
+
+    All numeric values are cast to native Python types to avoid
+    ``bson.errors.InvalidDocument`` when pymongo encounters numpy scalars.
+    """
     if raw:
+        from utils import to_python_type
+
         return {
-            "best_f1": raw["f1_score"]["max"],
-            "best_latency_ms": raw["latency"]["min"] * 1000,
-            "best_interpretability": raw["interpretability"]["max"],
-            "pareto_front_size": raw["pareto_front_size"],
-            "total_solutions": raw["total_solutions"],
-            "hypervolume": raw.get("hypervolume", 0.0),
-            "knee_point": raw.get("knee_point"),
+            "best_f1": float(raw["f1_score"]["max"]),
+            "best_latency_ms": float(raw["latency"]["min"]) * 1000,
+            "best_interpretability": float(raw["interpretability"]["max"]),
+            "pareto_front_size": int(raw["pareto_front_size"]),
+            "total_solutions": int(raw["total_solutions"]),
+            "hypervolume": float(raw.get("hypervolume", 0.0)),
+            "knee_point": to_python_type(raw.get("knee_point")),
         }
     return {
         "best_f1": 0.0,
@@ -96,31 +102,35 @@ def _format_metrics(raw: dict | None) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> None:
+def run_automl_job(
+    job_id: str, backend_root_str: str, mongo_uri: str, db_name: str
+) -> None:
     """Run a tracked AutoML job inside a ProcessPoolExecutor worker.
 
-    Writes progress to jobs/{job_id}/status.json on every generation callback
-    so the FastAPI SSE endpoint can stream live updates to the React client.
-    Writes final results to jobs/{job_id}/result.json on completion.
+    Writes progress to MongoDB on every generation callback so the FastAPI
+    SSE endpoint can stream live updates to the React client.  Writes final
+    results to the same MongoDB document on completion.
 
-    Cancellation is cooperative: the progress_callback raises _TerminationRequested
-    when jobs/{job_id}/stop.signal exists.  The caller writes that file via
-    JobManager.terminate_job().
+    Cancellation is cooperative: the progress_callback raises
+    _TerminationRequested when the ``stop_requested`` field is set in MongoDB.
+    The caller sets that field via JobManager.terminate_job().
 
     Args:
-        job_id:           Unique job identifier.
-        jobs_dir_str:     Absolute path to the jobs directory.
+        job_id:           Unique job identifier (MongoDB _id).
         backend_root_str: Absolute path to the backend package root.
+        mongo_uri:        MongoDB connection URI.
+        db_name:          MongoDB database name.
     """
     _ensure_sys_path(backend_root_str)
 
-    import json
     import os
     import time
     import traceback
     import warnings
     from pathlib import Path
 
+    import certifi
+    from pymongo import MongoClient
     from sklearn.exceptions import ConvergenceWarning
 
     warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
@@ -128,34 +138,24 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
     warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
     from automl import HybridAutoML
-    from utils.evaluation import ParetoAnalyzer
     from utils import DataLoader, to_python_type
+    from utils.evaluation import ParetoAnalyzer
     from utils.logger import get_logger
 
-    jobs_dir = Path(jobs_dir_str)
-    job_dir = jobs_dir / job_id
-    stop_file = job_dir / "stop.signal"
-    status_path = job_dir / "status.json"
-    result_path = job_dir / "result.json"
+    # Worker creates its own MongoClient (never share across fork boundary).
+    client = MongoClient(mongo_uri, tlsCAFile=certifi.where())
+    db = client[db_name]
+    jobs = db.jobs
 
-    def _read_status() -> dict:
-        try:
-            with open(status_path) as f:
-                return json.load(f)
-        except Exception:
-            return {"job_id": job_id}
+    def _update_status(fields: dict) -> None:
+        """Update status fields in MongoDB."""
+        fields["last_updated"] = time.time()
+        jobs.update_one({"_id": job_id}, {"$set": fields})
 
-    def _write_status(status: dict) -> None:
-        import tempfile
-
-        status["last_updated"] = time.time()
-        try:
-            fd, tmp = tempfile.mkstemp(dir=job_dir, suffix=".tmp")
-            with os.fdopen(fd, "w") as f:
-                json.dump(status, f, indent=2)
-            os.replace(tmp, status_path)
-        except Exception as exc:
-            logger.error(f"Failed to write status for {job_id}: {exc}")
+    def _is_stop_requested() -> bool:
+        """Check if termination has been requested."""
+        doc = jobs.find_one({"_id": job_id}, {"stop_requested": 1})
+        return bool(doc and doc.get("stop_requested"))
 
     with _job_file_logging(job_id, backend_root_str):
         logger = get_logger("worker")
@@ -166,15 +166,11 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
             """Raised to stop the job cooperatively; bypasses bare except Exception."""
 
         # ----- mark running -------------------------------------------------
-        status = _read_status()
-        status["status"] = "running"
-        status["message"] = "Loading dataset..."
-        _write_status(status)
+        _update_status({"status": "running", "message": "Loading dataset..."})
 
         try:
-            config_path = job_dir / "config.json"
-            with open(config_path) as f:
-                config = json.load(f)
+            doc = jobs.find_one({"_id": job_id}, {"config": 1})
+            config = doc["config"]
 
             data_dir = str(Path(backend_root_str) / "data")
             logger.info(f"Loading dataset: {config['dataset_name']}")
@@ -197,26 +193,24 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
             )
 
             def progress_callback(progress_info: dict) -> None:
-                if stop_file.exists():
+                if _is_stop_requested():
                     logger.info(f"Stop signal detected for job {job_id}")
                     raise _TerminationRequested()
 
-                current = _read_status()
-                current.update(
-                    {
-                        "current_generation": progress_info.get("current_generation"),
-                        "total_generations": progress_info.get("total_generations"),
-                        "progress": progress_info.get("progress"),
-                        "message": progress_info.get("message"),
-                    }
-                )
+                fields = {
+                    "current_generation": progress_info.get("current_generation"),
+                    "total_generations": progress_info.get("total_generations"),
+                    "progress": progress_info.get("progress"),
+                    "message": progress_info.get("message"),
+                }
 
                 # Enrich with live metrics from the result store.
                 try:
                     store = automl.result_store
                     total_lookups = store.cache_hit_count + store.cache_miss_count
                     successful = [
-                        v for v in store.eval_cache.values()
+                        v
+                        for v in store.eval_cache.values()
                         if v.get("status") == "success"
                     ]
                     best_f1 = max(
@@ -236,18 +230,17 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
                         if total_lookups > 0
                         else 0.0
                     )
-                    current["best_f1"] = round(best_f1, 4)
-                    current["best_latency_ms"] = round(best_latency_ms, 4)
-                    current["best_interpretability"] = round(best_interpretability, 4)
-                    current["cache_hit_rate"] = cache_hit_rate
-                    current["total_evaluated"] = len(store.eval_cache)
+                    fields["best_f1"] = round(float(best_f1), 4)
+                    fields["best_latency_ms"] = round(float(best_latency_ms), 4)
+                    fields["best_interpretability"] = round(float(best_interpretability), 4)
+                    fields["cache_hit_rate"] = cache_hit_rate
+                    fields["total_evaluated"] = len(store.eval_cache)
                 except Exception:
                     logger.debug("Live metric collection failed", exc_info=True)
 
-                _write_status(current)
+                _update_status(fields)
 
-            status["message"] = "Running optimization..."
-            _write_status(status)
+            _update_status({"message": "Running optimization..."})
 
             start_time = time.time()
             results = automl.run(callback=progress_callback)
@@ -258,31 +251,41 @@ def run_automl_job(job_id: str, jobs_dir_str: str, backend_root_str: str) -> Non
             results["metrics"] = _format_metrics(raw_metrics)
             results["runtime_seconds"] = runtime_seconds
 
-            with open(result_path, "w") as f:
-                json.dump(to_python_type(results), f, indent=2, allow_nan=False)
-
-            status = _read_status()
-            status["status"] = "completed"
-            status["progress"] = 100
-            status["message"] = "Optimization completed successfully"
-            status["result_path"] = str(result_path)
-            _write_status(status)
+            jobs.update_one(
+                {"_id": job_id},
+                {
+                    "$set": {
+                        "result": to_python_type(results),
+                        "status": "completed",
+                        "progress": 100,
+                        "message": "Optimization completed successfully",
+                        "last_updated": time.time(),
+                    }
+                },
+            )
             logger.info(f"Job {job_id} completed successfully")
 
         except _TerminationRequested:
             logger.info(f"Job {job_id} terminated by user request")
-            status = _read_status()
-            status["status"] = "terminated"
-            status["message"] = "Job was manually terminated"
-            _write_status(status)
+            _update_status(
+                {
+                    "status": "terminated",
+                    "message": "Job was manually terminated",
+                }
+            )
 
         except Exception as e:
             logger.error(f"Job {job_id} failed: {e}\n{traceback.format_exc()}")
-            status = _read_status()
-            status["status"] = "failed"
-            status["error"] = str(e)
-            status["message"] = f"Failed: {e}"
-            _write_status(status)
+            _update_status(
+                {
+                    "status": "failed",
+                    "error": str(e),
+                    "message": f"Failed: {e}",
+                }
+            )
+
+        finally:
+            client.close()
 
 
 # ---------------------------------------------------------------------------
@@ -301,8 +304,10 @@ def run_ablation(
     bo_calls: int = 15,
     seed: int = 42,
     backend_root_str: str = "",
+    mongo_uri: str = "",
+    db_name: str = "",
 ) -> None:
-    """Run one ablation study and save the result to results/ablations/.
+    """Run one ablation study and save the result to MongoDB.
 
     Fire-and-forget: no status tracking, no progress callback, no cancellation.
     Call GET /api/ablations to check for new results after the run finishes.
@@ -318,14 +323,16 @@ def run_ablation(
         bo_calls:         BO calls (ignored when disable_bo=True).
         seed:             Random seed for reproducibility.
         backend_root_str: Absolute path to the backend package root.
+        mongo_uri:        MongoDB connection URI.
+        db_name:          MongoDB database name.
     """
     _ensure_sys_path(backend_root_str)
 
-    import json
     import time
     import warnings
-    from pathlib import Path
 
+    import certifi
+    from pymongo import MongoClient
     from sklearn.exceptions import ConvergenceWarning
 
     warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
@@ -334,9 +341,20 @@ def run_ablation(
 
     from automl import HybridAutoML
     from automl.search_engine import OPTIMIZATION_MODES
-    from utils.evaluation import ParetoAnalyzer
     from utils import DataLoader, to_python_type
+    from utils.evaluation import ParetoAnalyzer
     from utils.logger import get_logger
+
+    # Worker creates its own MongoClient (never share across fork boundary).
+    client = MongoClient(mongo_uri, tlsCAFile=certifi.where())
+    db = client[db_name]
+    jobs = db.jobs
+
+    eff_mode = (
+        "random_search"
+        if mode == "random_search"
+        else ("ga_only" if disable_bo else mode)
+    )
 
     ablation_log_id = f"ablation_{mode}{'_nobo' if disable_bo else ''}_{parent_job_id}"
 
@@ -347,19 +365,14 @@ def run_ablation(
             f"dataset={dataset}, disable_bo={disable_bo}"
         )
 
-        # Deterministic output path — nested inside parent job directory.
-        # Deleting the parent job folder now automatically cleans up ablations.
-        eff_mode = "random_search" if mode == "random_search" else ("ga_only" if disable_bo else mode)
-        output_dir = Path(backend_root_str) / "jobs" / parent_job_id / "ablations"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / f"{eff_mode}.json"
-
         try:
             weights = OPTIMIZATION_MODES.get(mode, [1.0, -1.0, 1.0])
 
             # Random search inherently disables BO
             if mode == "random_search":
                 disable_bo = True
+
+            from pathlib import Path
 
             data_dir = str(Path(backend_root_str) / "data")
             data_loader = DataLoader(cache_dir=data_dir)
@@ -408,12 +421,11 @@ def run_ablation(
                 "results": to_python_type(results),
             }
 
-            tmp_file = output_file.with_suffix(f"{output_file.suffix}.tmp")
-            with open(tmp_file, "w") as f:
-                json.dump(to_python_type(payload), f, indent=2, allow_nan=False)
-            tmp_file.replace(output_file)
-
-            logger.info(f"Ablation saved → {output_file}")
+            jobs.update_one(
+                {"_id": parent_job_id},
+                {"$set": {f"ablations.{eff_mode}": to_python_type(payload)}},
+            )
+            logger.info(f"Ablation saved → ablations.{eff_mode} on {parent_job_id}")
 
         except Exception as e:
             logger.error(f"Ablation failed: {e}", exc_info=True)
@@ -428,7 +440,12 @@ def run_ablation(
                 "runtime_seconds": None,
             }
             try:
-                with open(output_file, "w") as f:
-                    json.dump(error_payload, f, indent=2)
+                jobs.update_one(
+                    {"_id": parent_job_id},
+                    {"$set": {f"ablations.{eff_mode}": error_payload}},
+                )
             except Exception:
-                logger.error(f"Failed to write error artifact for {output_file}")
+                logger.error(f"Failed to write error artifact for ablation {eff_mode}")
+
+        finally:
+            client.close()
