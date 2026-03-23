@@ -320,7 +320,11 @@ def start_ablation(config: AblationConfig):
     """
     from api.worker import run_ablation
 
-    config_path = Path(_BACKEND_ROOT) / "jobs" / config.parent_job_id / "config.json"
+    pid = config.parent_job_id
+    if not pid or "/" in pid or "\\" in pid or pid.startswith("."):
+        raise HTTPException(status_code=400, detail="Invalid parent_job_id")
+
+    config_path = Path(_BACKEND_ROOT) / "jobs" / pid / "config.json"
     if not config_path.is_file():
         raise HTTPException(status_code=404, detail="Parent job not found")
 
