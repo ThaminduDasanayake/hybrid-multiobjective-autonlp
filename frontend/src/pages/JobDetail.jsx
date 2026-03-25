@@ -518,22 +518,58 @@ const JobDetail = () => {
             )}
 
             <div className="space-y-8">
-              {/* Table 1: Single-Objective vs Multi-Objective */}
+              {/* Table 1: Comprehensive Evaluation & Ablation Studies */}
               <ComparisonTable
-                title="Table 1: Single-Objective vs. Multi-Objective"
-                subtitle="Compares optimising F1 alone against the full 3-objective formulation."
+                title="Table 1: Comprehensive Evaluation & Ablation Studies"
+                subtitle="Comparison of the proposed 3-objective architecture against single-objective baselines and component ablations."
                 headers={[
-                  "Method",
-                  "Best F1",
-                  "Latency (ms)",
-                  "Interp.",
+                  "Configuration",
+                  "Best F1 ↑",
+                  "Latency (ms) ↓",
+                  "Interp. ↑",
                   "Pareto Size",
-                  "Hypervolume",
+                  "Hypervolume ↑",
                   "Runtime",
                 ]}
                 rows={[
                   {
+                    label: "Full GA + BO (Proposed 3-Objective)",
+                    cells: [
+                      { value: f4(masterMetrics?.best_f1), best: true },
+                      { value: fLatency(masterMetrics?.best_latency_ms), best: true },
+                      { value: f4(masterMetrics?.best_interpretability), best: true },
+                      { value: fSize(masterMetrics?.pareto_front_size), best: true },
+                      { value: f4(masterMetrics?.hypervolume), best: true },
+                      { value: fRuntime(masterRuntime), best: true },
+                    ],
+                  },
+                  {
+                    label: "2-Objective (No Interpretability)",
+                    even: true,
+                    cells: [
+                      { value: f4(two?.best_f1) },
+                      { value: fLatency(two?.best_latency_ms) },
+                      { value: f4(two?.best_interpretability) },
+                      { value: fSize(two?.pareto_front_size) },
+                      { value: f4(two?.hypervolume) },
+                      { value: fRuntime(twoRT) },
+                    ],
+                  },
+                  {
+                    label: "GA-Only — Random Hyperparams",
+                    sub: "Bayesian optimization disabled",
+                    cells: [
+                      { value: f4(gaOnly?.best_f1) },
+                      { value: fLatency(gaOnly?.best_latency_ms) },
+                      { value: f4(gaOnly?.best_interpretability) },
+                      { value: fSize(gaOnly?.pareto_front_size) },
+                      { value: f4(gaOnly?.hypervolume) },
+                      { value: fRuntime(gaOnlyRT) },
+                    ],
+                  },
+                  {
                     label: "Single-Objective (F1 Only)",
+                    even: true,
                     cells: [
                       { value: f4(single?.best_f1) },
                       { value: fLatency(single?.best_latency_ms) },
@@ -544,74 +580,13 @@ const JobDetail = () => {
                     ],
                   },
                   {
-                    label: "Multi-Objective (F1 + Latency + Interp)",
-                    sub: `Dataset: ${dataset}`,
-                    even: true,
-                    cells: [
-                      { value: f4(masterMetrics?.best_f1), best: true },
-                      { value: fLatency(masterMetrics?.best_latency_ms), best: true },
-                      { value: f4(masterMetrics?.best_interpretability), best: true },
-                      { value: fSize(masterMetrics?.pareto_front_size), best: true },
-                      { value: f4(masterMetrics?.hypervolume), best: true },
-                      { value: fRuntime(masterRuntime) },
-                    ],
-                  },
-                ]}
-              />
-
-              {/* Table 2: Ablation Studies */}
-              <ComparisonTable
-                title="Table 2: Ablation Studies"
-                subtitle="Proves the contribution of BO and interpretability to overall quality."
-                headers={[
-                  "Configuration",
-                  "Best F1",
-                  "Latency (ms)",
-                  "Interp.",
-                  "Hypervolume",
-                  "Runtime",
-                ]}
-                rows={[
-                  {
-                    label: "Full GA + BO (3-Objective)",
-                    cells: [
-                      { value: f4(masterMetrics?.best_f1), best: true },
-                      { value: fLatency(masterMetrics?.best_latency_ms), best: true },
-                      { value: f4(masterMetrics?.best_interpretability), best: true },
-                      { value: f4(masterMetrics?.hypervolume), best: true },
-                      { value: fRuntime(masterRuntime) },
-                    ],
-                  },
-                  {
-                    label: "GA-Only — Random Hyperparams",
-                    sub: "Bayesian optimization disabled",
-                    even: true,
-                    cells: [
-                      { value: f4(gaOnly?.best_f1) },
-                      { value: fLatency(gaOnly?.best_latency_ms) },
-                      { value: f4(gaOnly?.best_interpretability) },
-                      { value: f4(gaOnly?.hypervolume) },
-                      { value: fRuntime(gaOnlyRT) },
-                    ],
-                  },
-                  {
-                    label: "2-Objective (No Interpretability)",
-                    cells: [
-                      { value: f4(two?.best_f1) },
-                      { value: fLatency(two?.best_latency_ms) },
-                      { value: f4(two?.best_interpretability) },
-                      { value: f4(two?.hypervolume) },
-                      { value: fRuntime(twoRT) },
-                    ],
-                  },
-                  {
                     label: "Random Search Baseline",
                     sub: "No GA, no BO — pure random sampling",
-                    even: true,
                     cells: [
                       { value: f4(randomSearch?.best_f1) },
                       { value: fLatency(randomSearch?.best_latency_ms) },
                       { value: f4(randomSearch?.best_interpretability) },
+                      { value: fSize(randomSearch?.pareto_front_size ?? 1) },
                       { value: f4(randomSearch?.hypervolume) },
                       { value: fRuntime(randomSearchRT) },
                     ],
