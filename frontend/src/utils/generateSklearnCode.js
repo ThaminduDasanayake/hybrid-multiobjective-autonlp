@@ -24,14 +24,21 @@ export function generateSklearnCode(config, datasetName = "ag_news") {
   if (ngram_range) {
     const parts = String(ngram_range).split("-");
     if (parts.length === 2) {
-      minN = parseInt(parts[0], 10);
-      maxN = parseInt(parts[1], 10);
+      const parsedMin = parseInt(parts[0], 10);
+      const parsedMax = parseInt(parts[1], 10);
+      if (!Number.isNaN(parsedMin) && !Number.isNaN(parsedMax)) {
+        minN = parsedMin;
+        maxN = parsedMax;
+      }
     }
   }
 
   // ── Parse max_features ─────────────────────────────────────────────
-  const maxFeat =
-    !max_features || String(max_features) === "None" ? "None" : String(parseInt(max_features, 10));
+  const maxFeat = (() => {
+    if (!max_features || String(max_features) === "None") return "None";
+    const parsed = parseInt(max_features, 10);
+    return Number.isNaN(parsed) ? "None" : String(parsed);
+  })();
 
   // ── Collect imports ────────────────────────────────────────────────
   const imports = ["from sklearn.pipeline import Pipeline"];
