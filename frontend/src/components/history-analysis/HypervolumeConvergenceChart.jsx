@@ -34,13 +34,13 @@ const HypervolumeConvergenceChart = ({ hvHistory = [] }) => {
     showlegend: false,
     xaxis: {
       ...AXIS_STYLE,
-      title: { text: "Generation", font: { size: 12, color: COLORS.slate400 } },
+      title: { text: "Generation", font: { size: 12, color: COLORS.slate500 } },
       zeroline: false,
       dtick: 1,
     },
     yaxis: {
       ...AXIS_STYLE,
-      title: { text: "Hypervolume ↑", font: { size: 12, color: COLORS.slate400 } },
+      title: { text: "Hypervolume ↑", font: { size: 12, color: COLORS.slate500 } },
       zeroline: false,
       range: [minHV - yPadding, maxHV + yPadding],
     },

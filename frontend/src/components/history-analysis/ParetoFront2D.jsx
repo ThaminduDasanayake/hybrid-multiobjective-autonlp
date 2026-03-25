@@ -25,14 +25,17 @@ const ParetoFront2D = ({
   yLabel,
   xScale = 1,
 }) => {
-  if (allSolutions.length === 0 && paretoFront.length === 0) {
+  const validSolutions = allSolutions.filter((s) => s.latency == null || (s.latency * 1000) < 1e5);
+  const validPareto = paretoFront.filter((s) => s.latency == null || (s.latency * 1000) < 1e5);
+
+  if (validSolutions.length === 0 && validPareto.length === 0) {
     return <div className="chart-empty h-64">No solution data available.</div>;
   }
 
   const xVal = (s) => (s[xKey] ?? 0) * xScale;
   const yVal = (s) => s[yKey] ?? 0;
 
-  const sortedPareto = [...paretoFront].sort((a, b) => xVal(a) - xVal(b));
+  const sortedPareto = [...validPareto].sort((a, b) => xVal(a) - xVal(b));
 
   const hoverTpl =
     "<b>%{customdata[0]}</b><br>" +
@@ -47,17 +50,17 @@ const ParetoFront2D = ({
     {
       type: "scatter",
       mode: "markers",
-      name: `All Solutions (${allSolutions.length})`,
-      x: allSolutions.map(xVal),
-      y: allSolutions.map(yVal),
-      customdata: buildCustomData(allSolutions),
+      name: `All Solutions (${validSolutions.length})`,
+      x: validSolutions.map(xVal),
+      y: validSolutions.map(yVal),
+      customdata: buildCustomData(validSolutions),
       hovertemplate: hoverTpl,
       marker: { size: 6, color: COLORS.dominatedSolution, line: { width: 0 } },
     },
     {
       type: "scatter",
       mode: "lines+markers",
-      name: `Pareto Front (${paretoFront.length})`,
+      name: `Pareto Front (${validPareto.length})`,
       x: sortedPareto.map(xVal),
       y: sortedPareto.map(yVal),
       customdata: buildCustomData(sortedPareto),
@@ -80,11 +83,11 @@ const ParetoFront2D = ({
     legend: { x: 0.01, y: 0.01, ...LEGEND_STYLE },
     xaxis: {
       ...AXIS_STYLE,
-      title: { text: xLabel, font: { size: 12, color: COLORS.slate400 } },
+      title: { text: xLabel, font: { size: 12, color: COLORS.slate500 } },
     },
     yaxis: {
       ...AXIS_STYLE,
-      title: { text: yLabel, font: { size: 12, color: COLORS.slate400 } },
+      title: { text: yLabel, font: { size: 12, color: COLORS.slate500 } },
     },
   };
 

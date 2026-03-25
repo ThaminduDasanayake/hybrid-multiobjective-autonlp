@@ -34,7 +34,7 @@ const ComparisonTable = ({ title, subtitle, headers = [], rows = [] }) => (
       <h2 className="section-title">{title}</h2>
       {subtitle && <p className="section-subtitle">{subtitle}</p>}
     </div>
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
+    <div className="overflow-x-auto rounded-xl border border-border bg-card">
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/60 hover:bg-muted/60">

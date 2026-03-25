@@ -67,15 +67,15 @@ const ParetoHeatmap = ({ paretoFront = [] }) => {
   const layout = {
     ...CHART_LAYOUT,
     margin: { l: 90, r: 20, t: 40, b: 20 },
-    font: { color: COLORS.slate400, size: 11 },
+    font: { color: COLORS.slate500, size: 11 },
     xaxis: {
-      tickfont: { color: COLORS.slate400, size: 12 },
+      tickfont: { color: COLORS.slate500, size: 12 },
       gridcolor: COLORS.slate800,
       side: "top",
       fixedrange: true,
     },
     yaxis: {
-      tickfont: { color: COLORS.slate400, size: 11 },
+      tickfont: { color: COLORS.slate500, size: 11 },
       gridcolor: COLORS.slate800,
       autorange: "reversed",
       fixedrange: true,

@@ -44,35 +44,39 @@ const SCENE_AXIS = {
   backgroundcolor: COLORS.transparent,
   showspikes: false,
   tickfont: { size: 10, color: COLORS.slate500 },
-  titlefont: { size: 12, color: COLORS.slate400 },
+  titlefont: { size: 12, color: COLORS.slate500 },
   zerolinecolor: COLORS.slate800,
+  rangemode: "tozero",
 };
 
 const ParetoFront3D = ({ allSolutions = [], paretoFront = [] }) => {
-  if (allSolutions.length === 0 && paretoFront.length === 0) {
-    return <div className="chart-empty h-96">No solution data available for this run.</div>;
+  const validSolutions = allSolutions.filter((s) => s.latency != null && (s.latency * 1000) < 1e5);
+  const validPareto = paretoFront.filter((s) => s.latency != null && (s.latency * 1000) < 1e5);
+
+  if (validSolutions.length === 0 && validPareto.length === 0) {
+    return <div className="chart-empty h-96">No valid solution data available for this run.</div>;
   }
 
   const data = [
     {
       type: "scatter3d",
       mode: "markers",
-      name: `All Solutions (${allSolutions.length})`,
-      x: allSolutions.map((s) => s.f1_score),
-      y: allSolutions.map((s) => (s.latency ?? 0) * 1000),
-      z: allSolutions.map((s) => s.interpretability),
-      customdata: buildCustomData(allSolutions),
+      name: `All Solutions (${validSolutions.length})`,
+      x: validSolutions.map((s) => s.f1_score),
+      y: validSolutions.map((s) => s.latency * 1000),
+      z: validSolutions.map((s) => s.interpretability),
+      customdata: buildCustomData(validSolutions),
       hovertemplate: HOVER_TEMPLATE,
       marker: { size: 4, color: COLORS.dominatedSolution, line: { width: 0 } },
     },
     {
       type: "scatter3d",
       mode: "markers",
-      name: `Pareto Front (${paretoFront.length})`,
-      x: paretoFront.map((s) => s.f1_score),
-      y: paretoFront.map((s) => (s.latency ?? 0) * 1000),
-      z: paretoFront.map((s) => s.interpretability),
-      customdata: buildCustomData(paretoFront),
+      name: `Pareto Front (${validPareto.length})`,
+      x: validPareto.map((s) => s.f1_score),
+      y: validPareto.map((s) => s.latency * 1000),
+      z: validPareto.map((s) => s.interpretability),
+      customdata: buildCustomData(validPareto),
       hovertemplate: PARETO_HOVER_TEMPLATE,
       marker: {
         size: 9,
@@ -90,9 +94,9 @@ const ParetoFront3D = ({ allSolutions = [], paretoFront = [] }) => {
     showlegend: true,
     legend: { x: 0.01, y: 0.99, ...LEGEND_STYLE, font: { size: 12, color: COLORS.slate200 } },
     scene: {
-      xaxis: { ...SCENE_AXIS, title: { text: "F1 Score ↑" } },
+      xaxis: { ...SCENE_AXIS, title: { text: "F1 Score ↑" }, range: [0, 1.05], tickvals: [0, 0.2, 0.4, 0.6, 0.8, 1.0] },
       yaxis: { ...SCENE_AXIS, title: { text: "Latency (ms) ↓" } },
-      zaxis: { ...SCENE_AXIS, title: { text: "Interpretability ↑" } },
+      zaxis: { ...SCENE_AXIS, title: { text: "Interpretability ↑" }, range: [0, 1.05], tickvals: [0, 0.2, 0.4, 0.6, 0.8, 1.0] },
       bgcolor: COLORS.transparent,
       camera: { eye: { x: 1.6, y: -1.6, z: 0.8 } },
     },

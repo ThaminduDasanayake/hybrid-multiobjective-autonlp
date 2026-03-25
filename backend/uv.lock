@@ -203,7 +203,7 @@ requires-dist = [
     { name = "deap", specifier = ">=1.4.3" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.135.1" },
     { name = "numpy", specifier = ">=2.4.3" },
-    { name = "pymongo", specifier = ">=4.7.0" },
+    { name = "pymongo", extras = ["srv"], specifier = ">=4.7.0" },
     { name = "pymoo", specifier = ">=0.6.1.6" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "scikit-learn", specifier = ">=1.8.0" },

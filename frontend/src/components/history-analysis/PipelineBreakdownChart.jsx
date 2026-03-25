@@ -88,7 +88,7 @@ const PipelineBreakdownChart = ({ allSolutions = [], paretoFront = [] }) => {
       yref: "paper",
       text: `<b>${group.label}</b>`,
       showarrow: false,
-      font: { size: 12, color: COLORS.slate400 },
+      font: { size: 12, color: COLORS.slate500 },
     });
 
     if (gi < groups.length - 1) {
@@ -112,7 +112,7 @@ const PipelineBreakdownChart = ({ allSolutions = [], paretoFront = [] }) => {
     const domainEnd = (gi + 1) * domainStep - gap / 2;
     xaxisConfigs[key] = {
       domain: [domainStart, domainEnd],
-      tickfont: { color: COLORS.slate400, size: 11 },
+      tickfont: { color: COLORS.slate500, size: 11 },
       gridcolor: COLORS.slate800,
       zeroline: false,
       anchor: "y",
@@ -124,7 +124,7 @@ const PipelineBreakdownChart = ({ allSolutions = [], paretoFront = [] }) => {
     barmode: "group",
     margin: { l: 40, r: 20, t: 40, b: 40 },
     yaxis: {
-      tickfont: { color: COLORS.slate400, size: 11 },
+      tickfont: { color: COLORS.slate500, size: 11 },
       gridcolor: COLORS.slate800,
       zeroline: false,
       title: { text: "Count", font: { size: 11, color: COLORS.slate500 } },
@@ -133,7 +133,7 @@ const PipelineBreakdownChart = ({ allSolutions = [], paretoFront = [] }) => {
       orientation: "h",
       x: 0,
       y: -0.15,
-      font: { size: 11, color: COLORS.slate400 },
+      font: { size: 11, color: COLORS.slate500 },
     },
     annotations,
     shapes,
@@ -146,7 +146,7 @@ const PipelineBreakdownChart = ({ allSolutions = [], paretoFront = [] }) => {
       layout={layout}
       config={CHART_CONFIG_MINIMAL}
       useResizeHandler
-      style={{ width: "100%", height: "300px" }}
+      style={{ width: "100%", height: "360px" }}
     />
   );
 };

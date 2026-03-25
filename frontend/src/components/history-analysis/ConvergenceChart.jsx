@@ -44,13 +44,13 @@ const ConvergenceChart = ({ searchHistory = [] }) => {
     showlegend: false,
     xaxis: {
       ...AXIS_STYLE,
-      title: { text: "Generation", font: { size: 12, color: COLORS.slate400 } },
+      title: { text: "Generation", font: { size: 12, color: COLORS.slate500 } },
       zeroline: false,
       dtick: 1,
     },
     yaxis: {
       ...AXIS_STYLE,
-      title: { text: "Max F1 Score ↑", font: { size: 12, color: COLORS.slate400 } },
+      title: { text: "Max F1 Score ↑", font: { size: 12, color: COLORS.slate500 } },
       zeroline: false,
       range: [minScore - yPadding, maxScore + yPadding],
     },

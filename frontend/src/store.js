@@ -5,8 +5,7 @@
  * so that navigating between pages doesn't lose it.
  */
 import { create } from "zustand";
-
-const ACTIVE_JOB_KEY = "t_autonlp_active_job";
+import { ACTIVE_JOB_KEY } from "./constants";
 
 export const useStore = create((set) => ({
   /** ID of the job currently being monitored, or null. */

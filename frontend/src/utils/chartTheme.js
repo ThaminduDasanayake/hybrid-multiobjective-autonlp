@@ -10,18 +10,15 @@ export const COLORS = {
   primary: "#f97316",
   primaryDark: "#ea580c",
   amber: "#f59e0b",
-  blue: "#3b82f6",
-  blueDark: "#2563eb",
 
   slate200: "#cbd5e1",
-  slate400: "#94a3b8",
-  slate500: "#64748b",
+  slate500: "#a1a1aa",
   slate600: "#475569",
-  slate800: "#1e293b",
+  slate800: "#27272a",
   slate950: "#0f172a",
 
   transparent: "rgba(0,0,0,0)",
-  legendBg: "rgba(2, 6, 23, 0.8)",
+  legendBg: "rgba(24, 24, 27, 0.8)",
   dominatedSolution: "rgba(148, 163, 184, 0.35)",
   dominatedSolutionMed: "rgba(148, 163, 184, 0.6)",
   orangeFill: "rgba(249, 115, 22, 0.1)",
@@ -38,7 +35,7 @@ export const CHART_LAYOUT = {
   autosize: true,
   paper_bgcolor: COLORS.transparent,
   plot_bgcolor: COLORS.transparent,
-  font: { color: COLORS.slate400 },
+  font: { color: COLORS.slate500 },
 };
 
 export const LEGEND_STYLE = {

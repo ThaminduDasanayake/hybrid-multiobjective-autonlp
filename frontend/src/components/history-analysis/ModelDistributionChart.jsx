@@ -51,15 +51,19 @@ const ModelDistributionChart = ({ allSolutions = [], paretoFront = [] }) => {
     margin: { l: 50, r: 20, t: 20, b: 80 },
     barmode: "group",
     showlegend: true,
-    legend: { x: 0.01, y: 0.99, ...LEGEND_STYLE },
+    legend: {
+      orientation: "h",
+      x: 0,
+      y: -0.15,
+      font: { size: 11, color: COLORS.slate500 },
+    },
     xaxis: {
       ...AXIS_STYLE,
-      tickangle: -30,
       zeroline: false,
     },
     yaxis: {
       ...AXIS_STYLE,
-      title: { text: "Count", font: { size: 12, color: COLORS.slate400 } },
+      title: { text: "Count", font: { size: 12, color: COLORS.slate500 } },
       zeroline: false,
     },
   };

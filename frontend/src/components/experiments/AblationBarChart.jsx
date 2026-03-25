@@ -1,11 +1,32 @@
 import Plot from "react-plotly.js";
-import {
-  COLORS,
-  AXIS_STYLE,
-  CHART_LAYOUT,
-  LEGEND_STYLE,
-  CHART_CONFIG,
-} from "@/utils/chartTheme.js";
+import { COLORS, AXIS_STYLE, CHART_LAYOUT, CHART_CONFIG } from "@/utils/chartTheme.js";
+
+const METRICS = [
+  {
+    key: "best_f1",
+    label: "Best F1 Score ↑",
+    color: COLORS.primary,
+    colorDark: COLORS.primaryDark,
+  },
+  {
+    key: "best_latency_ms",
+    label: "Best Latency (ms) ↓",
+    color: COLORS.primary,
+    colorDark: COLORS.primaryDark,
+  },
+  {
+    key: "best_interpretability",
+    label: "Best Interpretability ↑",
+    color: COLORS.primary,
+    colorDark: COLORS.primaryDark,
+  },
+  {
+    key: "hypervolume",
+    label: "Hypervolume ↑",
+    color: COLORS.primary,
+    colorDark: COLORS.primaryDark,
+  },
+];
 
 const AblationBarChart = ({ masterMetrics, single, two, gaOnly, randomSearch }) => {
   const configs = [
@@ -26,50 +47,62 @@ const AblationBarChart = ({ masterMetrics, single, two, gaOnly, randomSearch }) 
 
   const labels = configs.map((c) => c.label);
 
-  const data = [
-    {
-      type: "bar",
-      name: "Best F1",
-      x: labels,
-      y: configs.map((c) => c.metrics.best_f1 ?? 0),
-      marker: { color: COLORS.primary, line: { color: COLORS.primaryDark, width: 1 } },
-      hovertemplate: "%{x}<br>Best F1: %{y:.4f}<extra></extra>",
-    },
-    {
-      type: "bar",
-      name: "Hypervolume",
-      x: labels,
-      y: configs.map((c) => c.metrics.hypervolume ?? 0),
-      marker: { color: COLORS.blue, line: { color: COLORS.blueDark, width: 1 } },
-      hovertemplate: "%{x}<br>Hypervolume: %{y:.4f}<extra></extra>",
-    },
-  ];
-
-  const layout = {
-    ...CHART_LAYOUT,
-    margin: { l: 55, r: 20, t: 20, b: 55 },
-    barmode: "group",
-    showlegend: true,
-    legend: { x: 0.01, y: 0.99, ...LEGEND_STYLE },
-    xaxis: {
-      ...AXIS_STYLE,
-      zeroline: false,
-    },
-    yaxis: {
-      ...AXIS_STYLE,
-      title: { text: "Score", font: { size: 12, color: COLORS.slate400 } },
-      zeroline: false,
-    },
-  };
-
   return (
-    <Plot
-      data={data}
-      layout={layout}
-      config={CHART_CONFIG}
-      useResizeHandler
-      style={{ width: "100%", height: "360px" }}
-    />
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {METRICS.map((m) => {
+        const values = configs.map((c) => c.metrics[m.key] ?? 0);
+
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const span = max - min || max * 0.1 || 0.1;
+        const pad = span * 0.15;
+
+        const data = [
+          {
+            type: "scatter",
+            mode: "lines+markers",
+            x: labels,
+            y: values,
+            marker: { color: m.color, size: 10, line: { color: m.colorDark, width: 1 } },
+            line: { color: m.color, width: 3 },
+            hovertemplate: `%{x}<br>${m.label}: %{y:.4f}<extra></extra>`,
+          },
+        ];
+
+        const layout = {
+          ...CHART_LAYOUT,
+          margin: { l: 50, r: 10, t: 30, b: 50 },
+          showlegend: false,
+          title: {
+            text: m.label,
+            font: { size: 13, color: COLORS.slate500 },
+            x: 0.5,
+            y: 0.97,
+          },
+          xaxis: {
+            ...AXIS_STYLE,
+            zeroline: false,
+          },
+          yaxis: {
+            ...AXIS_STYLE,
+            zeroline: false,
+            autorange: false,
+            range: [min - pad, max + pad],
+          },
+        };
+
+        return (
+          <Plot
+            key={m.key}
+            data={data}
+            layout={layout}
+            config={CHART_CONFIG}
+            useResizeHandler
+            style={{ width: "100%", height: "220px" }}
+          />
+        );
+      })}
+    </div>
   );
 };
 

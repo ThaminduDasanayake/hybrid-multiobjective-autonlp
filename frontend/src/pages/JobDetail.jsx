@@ -54,6 +54,9 @@ function fRuntime(secs) {
   if (secs == null) return null;
   return secs < 60 ? `${Number(secs).toFixed(1)} s` : `${(secs / 60).toFixed(1)} m`;
 }
+function fLatency(v) {
+  return v != null ? Number(v).toFixed(4) : null;
+}
 function fSize(v) {
   return v != null ? String(v) : null;
 }
@@ -355,9 +358,9 @@ const JobDetail = () => {
             </div>
           </section>
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
             {/* Solution Analysis */}
-            <section className="flex flex-col">
+            <section className="flex flex-col lg:col-span-2">
               <div className="mb-3">
                 <h2 className="section-title">Solution Analysis</h2>
                 <p className="section-subtitle">
@@ -382,7 +385,7 @@ const JobDetail = () => {
             </section>
 
             {/* Pipeline Component Breakdown */}
-            <section className="flex flex-col">
+            <section className="flex flex-col lg:col-span-3">
               <div className="mb-3">
                 <h2 className="section-title">Pipeline Component Breakdown</h2>
                 <p className="section-subtitle">
@@ -519,12 +522,22 @@ const JobDetail = () => {
               <ComparisonTable
                 title="Table 1: Single-Objective vs. Multi-Objective"
                 subtitle="Compares optimising F1 alone against the full 3-objective formulation."
-                headers={["Method", "Best F1", "Pareto Size", "Hypervolume", "Runtime"]}
+                headers={[
+                  "Method",
+                  "Best F1",
+                  "Latency (ms)",
+                  "Interp.",
+                  "Pareto Size",
+                  "Hypervolume",
+                  "Runtime",
+                ]}
                 rows={[
                   {
                     label: "Single-Objective (F1 Only)",
                     cells: [
                       { value: f4(single?.best_f1) },
+                      { value: fLatency(single?.best_latency_ms) },
+                      { value: f4(single?.best_interpretability) },
                       { value: fSize(single?.pareto_front_size) },
                       { value: f4(single?.hypervolume) },
                       { value: fRuntime(singleRT) },
@@ -536,6 +549,8 @@ const JobDetail = () => {
                     even: true,
                     cells: [
                       { value: f4(masterMetrics?.best_f1), best: true },
+                      { value: fLatency(masterMetrics?.best_latency_ms), best: true },
+                      { value: f4(masterMetrics?.best_interpretability), best: true },
                       { value: fSize(masterMetrics?.pareto_front_size), best: true },
                       { value: f4(masterMetrics?.hypervolume), best: true },
                       { value: fRuntime(masterRuntime) },
@@ -548,12 +563,21 @@ const JobDetail = () => {
               <ComparisonTable
                 title="Table 2: Ablation Studies"
                 subtitle="Proves the contribution of BO and interpretability to overall quality."
-                headers={["Configuration", "Best F1", "Hypervolume", "Runtime"]}
+                headers={[
+                  "Configuration",
+                  "Best F1",
+                  "Latency (ms)",
+                  "Interp.",
+                  "Hypervolume",
+                  "Runtime",
+                ]}
                 rows={[
                   {
                     label: "Full GA + BO (3-Objective)",
                     cells: [
                       { value: f4(masterMetrics?.best_f1), best: true },
+                      { value: fLatency(masterMetrics?.best_latency_ms), best: true },
+                      { value: f4(masterMetrics?.best_interpretability), best: true },
                       { value: f4(masterMetrics?.hypervolume), best: true },
                       { value: fRuntime(masterRuntime) },
                     ],
@@ -564,6 +588,8 @@ const JobDetail = () => {
                     even: true,
                     cells: [
                       { value: f4(gaOnly?.best_f1) },
+                      { value: fLatency(gaOnly?.best_latency_ms) },
+                      { value: f4(gaOnly?.best_interpretability) },
                       { value: f4(gaOnly?.hypervolume) },
                       { value: fRuntime(gaOnlyRT) },
                     ],
@@ -572,6 +598,8 @@ const JobDetail = () => {
                     label: "2-Objective (No Interpretability)",
                     cells: [
                       { value: f4(two?.best_f1) },
+                      { value: fLatency(two?.best_latency_ms) },
+                      { value: f4(two?.best_interpretability) },
                       { value: f4(two?.hypervolume) },
                       { value: fRuntime(twoRT) },
                     ],
@@ -582,6 +610,8 @@ const JobDetail = () => {
                     even: true,
                     cells: [
                       { value: f4(randomSearch?.best_f1) },
+                      { value: fLatency(randomSearch?.best_latency_ms) },
+                      { value: f4(randomSearch?.best_interpretability) },
                       { value: f4(randomSearch?.hypervolume) },
                       { value: fRuntime(randomSearchRT) },
                     ],
@@ -594,7 +624,7 @@ const JobDetail = () => {
                 <div className="mb-3">
                   <h2 className="section-title">Ablation Comparison</h2>
                   <p className="section-subtitle">
-                    Visual comparison of F1 and Hypervolume across configurations
+                    Visual comparison of all objectives and hypervolume across configurations
                   </p>
                 </div>
                 <div className="card-section">

@@ -2,6 +2,8 @@ import { Clock, Lightbulb, Target } from "lucide-react";
 
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
+export const ACTIVE_JOB_KEY = "t_autonlp_active_job";
+
 export const OBJECTIVES = [
   {
     icon: Target,
