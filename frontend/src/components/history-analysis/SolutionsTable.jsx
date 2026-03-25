@@ -10,10 +10,11 @@
  *   solutions – array from result.pareto_front
  */
 
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useState } from "react";
 import { fmt } from "@/utils/formatters.js";
-import { Star } from "lucide-react";
+import { Star, Code } from "lucide-react";
 import { DataTable, SortableHeader } from "@/components/ui/data-table";
+import CodeModal from "./CodeModal.jsx";
 
 /**
  * Unified metric badge — relative coloring within the current Pareto set.
@@ -60,6 +61,8 @@ const RowLabel = ({ text, className }) => (
 );
 
 const SolutionsTable = ({ solutions = [], kneePoint = null }) => {
+  const [codeModalSolution, setCodeModalSolution] = useState(null);
+
   // Use a stable identity check (f1 + latency + interp + model) so we can mark rows.
   const id = (s) => `${s.f1_score}_${s.latency}_${s.interpretability}_${s.model}`;
 
@@ -249,6 +252,24 @@ const SolutionsTable = ({ solutions = [], kneePoint = null }) => {
           </div>
         ),
       },
+      {
+        id: "actions",
+        header: () => (
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Code
+          </span>
+        ),
+        cell: ({ row }) => (
+          <button
+            onClick={() => setCodeModalSolution(row.original)}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            title="Show pipeline code"
+          >
+            <Code className="size-4" />
+          </button>
+        ),
+        enableSorting: false,
+      },
     ],
     [kneeId, bestF1Id, bestSpeedId, bestInterpId, f1Range, latRange, interpRange],
   );
@@ -275,13 +296,20 @@ const SolutionsTable = ({ solutions = [], kneePoint = null }) => {
   );
 
   return (
-    <DataTable
-      columns={columns}
-      data={tableData}
-      getRowClassName={getRowClassName}
-      footerContent={footerContent}
-      initialSorting={[{ id: "f1_score", desc: true }]}
-    />
+    <>
+      <DataTable
+        columns={columns}
+        data={tableData}
+        getRowClassName={getRowClassName}
+        footerContent={footerContent}
+        initialSorting={[{ id: "f1_score", desc: true }]}
+      />
+      <CodeModal
+        open={!!codeModalSolution}
+        onClose={() => setCodeModalSolution(null)}
+        solution={codeModalSolution}
+      />
+    </>
   );
 };
 
