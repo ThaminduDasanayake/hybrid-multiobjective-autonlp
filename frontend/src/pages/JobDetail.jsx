@@ -250,7 +250,7 @@ const JobDetail = () => {
           <DecisionSupport paretoFront={paretoFront} kneePoint={metrics?.knee_point} />
 
           {/* 3D Pareto Front */}
-          {/* <section>
+          <section>
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <h2 className="section-title">3D Pareto Front</h2>
@@ -275,7 +275,7 @@ const JobDetail = () => {
                 <ParetoFront3D allSolutions={allSolutions} paretoFront={paretoFront} />
               </Suspense>
             </div>
-          </section> */}
+          </section>
 
           {/* 2D Pareto Projections */}
           <section>
