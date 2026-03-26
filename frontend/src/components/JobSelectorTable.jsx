@@ -135,7 +135,7 @@ const JobSelectorTable = ({ jobs = {}, onDelete = () => {}, isDeleting }) => {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => navigate(`/history/${id}`)}
+                onClick={() => navigate(`/jobs/${id}`)}
                 className="h-7 px-2.5 text-xs hover:text-secondary"
               >
                 <Eye size={13} />

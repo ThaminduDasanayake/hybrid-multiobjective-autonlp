@@ -189,7 +189,7 @@ const JobDetail = () => {
             Export Research Bundle
           </Button>
         </div>
-        <h1 className="text-2xl font-bold text-foreground">{dataset || "Job Detail"}</h1>
+        <h1 className="text-2xl font-bold text-foreground">Job Details</h1>
         <p className="mt-1 font-mono text-sm text-muted-foreground">
           {jobId} — {fmt.date(jobMeta?.start_time)}
         </p>

@@ -26,7 +26,6 @@ const Home = () => {
 
   return (
     <div className="mx-auto max-w-6xl p-8">
-      {/* Active job banner */}
       {activeJobId && (
         <button
           onClick={() => navigate("/run")}
@@ -41,7 +40,6 @@ const Home = () => {
         </button>
       )}
 
-      {/* Hero */}
       <div className="mb-10">
         <div className="flex items-center gap-2.5 mb-2">
           <FlaskConical size={28} className="text-primary" />
@@ -74,10 +72,9 @@ const Home = () => {
         </div>
       </div>
 
-      {/* Run History */}
       <div>
         <div className="mb-4 flex items-center gap-3">
-          <h2 className="text-lg font-semibold text-foreground">Run History</h2>
+          <h2 className="text-lg font-semibold text-foreground">Recent Jobs</h2>
           {!jobsLoading && completedIds.length > 0 && (
             <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">
               {completedIds.length} run{completedIds.length !== 1 ? "s" : ""}

@@ -9,7 +9,7 @@ const App = () => {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/run" element={<RunAutoML />} />
-        <Route path="/history/:jobId" element={<JobDetail />} />
+        <Route path="/jobs/:jobId" element={<JobDetail />} />
       </Routes>
     </BrowserRouter>
   );

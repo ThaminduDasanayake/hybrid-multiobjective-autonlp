@@ -228,8 +228,7 @@ const LiveTracker = ({ jobId, onFinished }) => {
         <Alert className="border-secondary/30 bg-secondary/10 text-secondary [&>svg]:text-secondary">
           <CheckCircle2 />
           <AlertDescription>
-            Optimization complete — go to <strong>History &amp; Analysis</strong> to explore the
-            Pareto front.
+            Optimization complete - go to <strong>Job Details</strong> to explore the Pareto front.
           </AlertDescription>
         </Alert>
       )}
