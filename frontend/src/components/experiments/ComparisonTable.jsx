@@ -1,4 +1,9 @@
-import { Loader2 } from "lucide-react";
+import { Info, Loader2 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -14,6 +19,21 @@ function Pending() {
       <Loader2 size={9} className="animate-spin" />
       Run pending
     </span>
+  );
+}
+
+function GlobalMetricInfo() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex cursor-default items-center text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+          <Info size={12} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-48 text-xs">
+        Evaluated in global 3D space for baseline comparison.
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -63,11 +83,21 @@ const ComparisonTable = ({ title, subtitle, headers = [], rows = [] }) => (
                     <Pending />
                   ) : (
                     <span
-                      className={`font-mono tabular-nums text-sm ${
-                        cell.best ? "font-semibold text-primary" : "text-foreground/80"
+                      className={`inline-flex items-center justify-end gap-1.5 font-mono tabular-nums text-sm ${
+                        cell.passive
+                          ? "text-muted-foreground/50"
+                          : cell.best
+                            ? "font-semibold text-primary"
+                            : "text-foreground/80"
                       }`}
                     >
                       {cell.value}
+                      {cell.passive && (
+                        <span className="rounded bg-muted px-1 py-px font-sans text-[10px] font-medium leading-tight text-muted-foreground/60">
+                          Passive
+                        </span>
+                      )}
+                      {cell.globalMetric && <GlobalMetricInfo />}
                     </span>
                   )}
                 </TableCell>
