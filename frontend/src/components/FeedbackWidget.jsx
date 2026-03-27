@@ -4,41 +4,37 @@ import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { Button } from "./ui/button";
 import { MessageSquare, X, Send } from "lucide-react";
+import { useSubmitFeedback } from "@/hooks/useApi.js";
 
 export default function FeedbackWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const submitFeedbackMutation = useSubmitFeedback();
+
+  const handleSubmit = (e) => {
     e.preventDefault();
-    if (!message.trim()) return;
+    if (!message.trim() || submitFeedbackMutation.isPending) return;
 
-    setIsSubmitting(true);
-    try {
-      // The proxy in vite config handles /api requests
-      const response = await fetch("/api/feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, message }),
-      });
-
-      if (response.ok) {
-        setIsSuccess(true);
-        setTimeout(() => {
-          setIsOpen(false);
-          setIsSuccess(false);
-          setName("");
-          setMessage("");
-        }, 2000); // 2 seconds delay to fade/collapse
+    submitFeedbackMutation.mutate(
+      { name, message },
+      {
+        onSuccess: () => {
+          setIsSuccess(true);
+          setTimeout(() => {
+            setIsOpen(false);
+            setIsSuccess(false);
+            setName("");
+            setMessage("");
+          }, 2000); // 2 seconds delay to fade/collapse
+        },
+        onError: (error) => {
+          console.error("Failed to submit feedback:", error);
+        },
       }
-    } catch (error) {
-      console.error("Failed to submit feedback:", error);
-    } finally {
-      setIsSubmitting(false);
-    }
+    );
   };
 
   if (!isOpen) {
@@ -92,8 +88,12 @@ export default function FeedbackWidget() {
                   className="min-h-[100px] text-sm resize-none"
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={isSubmitting || !message.trim()}>
-                {isSubmitting ? "Sending..." : "Submit"}
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={submitFeedbackMutation.isPending || !message.trim()}
+              >
+                {submitFeedbackMutation.isPending ? "Sending..." : "Submit"}
               </Button>
             </form>
           )}

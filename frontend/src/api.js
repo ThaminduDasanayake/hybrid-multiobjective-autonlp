@@ -167,3 +167,16 @@ export function runAblation(config) {
 export function getHypervolumeHistory(jobId) {
   return _request(`/api/jobs/${jobId}/hypervolume-history`);
 }
+
+/**
+ * Submit user feedback.
+ *
+ * @param {{ name?: string, message: string }} feedback
+ * @returns {Promise<{ message: string, id: string }>}
+ */
+export function submitFeedback(feedback) {
+  return _request("/api/feedback", {
+    method: "POST",
+    body: JSON.stringify(feedback),
+  });
+}
