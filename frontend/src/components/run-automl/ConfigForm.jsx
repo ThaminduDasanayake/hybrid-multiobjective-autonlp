@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertCircle, Loader2, Zap } from "lucide-react";
+import { AlertCircle, Loader2, Zap, Info } from "lucide-react";
 import { useStartJob } from "@/hooks/useApi.js";
 import { Alert, AlertDescription } from "@/components/ui/alert.jsx";
 import { DATASETS, DEFAULTS, DEMO_CONFIG } from "@/constants.js";
@@ -105,6 +105,13 @@ const ConfigForm = ({ onJobStarted }) => {
             <AlertDescription>{startJobMutation.error.message}</AlertDescription>
           </Alert>
         )}
+
+        <Alert className="mb-6 bg-blue-50/50 text-blue-900 border-blue-200 dark:bg-blue-950/20 dark:text-blue-200 dark:border-blue-900">
+          <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+          <AlertDescription className="ml-2 text-sm leading-relaxed">
+            <strong>Note:</strong> T-AutoNLP performs rigorous evolutionary search. Depending on your configuration, a run may take 10-20 minutes. Progress will be streamed in real-time.
+          </AlertDescription>
+        </Alert>
 
         <div className="flex gap-3 pt-1">
           <Button type="submit" disabled={startJobMutation.isPending} size="lg" className="grow">
