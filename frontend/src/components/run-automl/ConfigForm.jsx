@@ -16,20 +16,20 @@ const ConfigForm = ({ onJobStarted }) => {
     const popSize = config.population_size || 20;
     const nGen = config.n_generations || 10;
     const bo = config.bo_calls || 15;
-    
-    const total = bo + (popSize * (nGen + 1));
-    
-    let intensity = "Fast Run";
-    let variant = "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 border-emerald-500/20";
-    
-    if (total >= 300 && total <= 1000) {
-      intensity = "Standard Run";
-      variant = "bg-amber-500/15 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400 border-amber-500/20";
-    } else if (total > 1000) {
+
+    const total = bo + popSize * (nGen + 1);
+
+    let intensity = "Rapid Prototype";
+    let variant = "bg-secondary/10 text-secondary border-secondary/20";
+
+    if (total >= 200 && total <= 800) {
+      intensity = "Standard Search";
+      variant = "bg-amber-500/10 text-amber-400 border-amber-500/20";
+    } else if (total > 800) {
       intensity = "Heavy Compute";
-      variant = "bg-destructive/15 text-destructive dark:bg-destructive/10 border-destructive/20";
+      variant = "bg-destructive/10 text-destructive border-destructive/20";
     }
-    
+
     return { totalPipelines: total, runIntensity: intensity, badgeVariant: variant };
   }, [config.population_size, config.n_generations, config.bo_calls]);
 
@@ -139,15 +139,15 @@ const ConfigForm = ({ onJobStarted }) => {
         <div className="mb-4 flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 shadow-sm">
           <div className="flex items-center gap-2.5">
             <Calculator className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium text-foreground">
-              Maximum Pipelines Evaluated
-            </span>
+            <span className="text-sm font-medium text-foreground">Maximum Pipelines Evaluated</span>
           </div>
           <div className="flex items-center gap-3">
             <span className="font-mono text-sm font-bold tabular-nums text-foreground">
               {totalPipelines.toLocaleString()}
             </span>
-            <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${badgeVariant}`}>
+            <span
+              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${badgeVariant}`}
+            >
               {runIntensity}
             </span>
           </div>

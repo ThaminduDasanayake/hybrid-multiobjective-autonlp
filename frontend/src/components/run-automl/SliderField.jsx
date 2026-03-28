@@ -1,6 +1,11 @@
 import { Label } from "@/components/ui/label.jsx";
 import { Slider } from "@/components/ui/slider.jsx";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip.jsx";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip.jsx";
 import { Info } from "lucide-react";
 
 const SliderField = ({ label, hint, value, min, max, step, onChange }) => {
@@ -15,10 +20,14 @@ const SliderField = ({ label, hint, value, min, max, step, onChange }) => {
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="text-muted-foreground hover:text-foreground transition-colors cursor-help">
+                  <button
+                    type="button"
+                    onClick={(e) => e.preventDefault()}
+                    className="text-muted-foreground hover:text-foreground transition-colors cursor-help"
+                  >
                     <Info className="h-4 w-4" />
                     <span className="sr-only">Field info</span>
-                  </span>
+                  </button>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-sm" side="top">
                   <p>{hint}</p>
@@ -40,7 +49,6 @@ const SliderField = ({ label, hint, value, min, max, step, onChange }) => {
         value={[value]}
         onValueChange={([v]) => onChange(v)}
       />
-
     </div>
   );
 };

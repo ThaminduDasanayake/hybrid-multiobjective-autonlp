@@ -1,9 +1,5 @@
 import { Info, Loader2 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -26,9 +22,13 @@ function GlobalMetricInfo() {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="inline-flex cursor-default items-center text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+        <button
+          type="button"
+          onClick={(e) => e.preventDefault()}
+          className="inline-flex cursor-default items-center text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+        >
           <Info size={12} />
-        </span>
+        </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-48 text-xs">
         Evaluated in global 3D space for baseline comparison.
