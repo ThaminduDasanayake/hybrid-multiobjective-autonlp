@@ -20,6 +20,7 @@ import {
   getJobs,
   runAblation,
   startJob,
+  submitFeedback,
 } from "@/api.js";
 
 // query hooks
@@ -165,5 +166,16 @@ export function useRunAblation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ablations"] });
     },
+  });
+}
+
+/**
+ * Submits user feedback.
+ *
+ * @returns {import("@tanstack/react-query").UseMutationResult}
+ */
+export function useSubmitFeedback() {
+  return useMutation({
+    mutationFn: submitFeedback,
   });
 }

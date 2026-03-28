@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Home from "./pages/Home";
 import RunAutoML from "./pages/RunAutoML";
 import JobDetail from "./pages/JobDetail";
+import FeedbackWidget from "./components/FeedbackWidget";
 
 const App = () => {
   return (
@@ -11,6 +12,7 @@ const App = () => {
         <Route path="/run" element={<RunAutoML />} />
         <Route path="/jobs/:jobId" element={<JobDetail />} />
       </Routes>
+      <FeedbackWidget />
     </BrowserRouter>
   );
 };

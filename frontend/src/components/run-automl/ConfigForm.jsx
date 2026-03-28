@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { AlertCircle, Loader2, Zap } from "lucide-react";
+import { useState, useMemo } from "react";
+import { AlertCircle, Loader2, Zap, Info, Calculator } from "lucide-react";
 import { useStartJob } from "@/hooks/useApi.js";
 import { Alert, AlertDescription } from "@/components/ui/alert.jsx";
 import { DATASETS, DEFAULTS, DEMO_CONFIG } from "@/constants.js";
@@ -11,6 +11,27 @@ import SliderField from "./SliderField.jsx";
 
 const ConfigForm = ({ onJobStarted }) => {
   const [config, setConfig] = useState(DEFAULTS);
+
+  const { totalPipelines, runIntensity, badgeVariant } = useMemo(() => {
+    const popSize = config.population_size || 20;
+    const nGen = config.n_generations || 10;
+    const bo = config.bo_calls || 15;
+    
+    const total = bo + (popSize * (nGen + 1));
+    
+    let intensity = "Fast Run";
+    let variant = "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 border-emerald-500/20";
+    
+    if (total >= 300 && total <= 1000) {
+      intensity = "Standard Run";
+      variant = "bg-amber-500/15 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400 border-amber-500/20";
+    } else if (total > 1000) {
+      intensity = "Heavy Compute";
+      variant = "bg-destructive/15 text-destructive dark:bg-destructive/10 border-destructive/20";
+    }
+    
+    return { totalPipelines: total, runIntensity: intensity, badgeVariant: variant };
+  }, [config.population_size, config.n_generations, config.bo_calls]);
 
   const startJobMutation = useStartJob();
 
@@ -105,6 +126,32 @@ const ConfigForm = ({ onJobStarted }) => {
             <AlertDescription>{startJobMutation.error.message}</AlertDescription>
           </Alert>
         )}
+
+        <Alert className="mb-6 border-secondary/20 bg-secondary/10 text-secondary">
+          <Info className="h-4 w-4 text-secondary" />
+          <AlertDescription className="ml-2 text-sm leading-relaxed">
+            <strong>Note:</strong> T-AutoNLP performs rigorous evolutionary search. Depending on
+            your configuration, a run may take 10-20 minutes. Progress will be streamed in
+            real-time. For a faster run, use the Quick Demo option.
+          </AlertDescription>
+        </Alert>
+
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-2.5">
+            <Calculator className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-foreground">
+              Maximum Pipelines Evaluated
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-sm font-bold tabular-nums text-foreground">
+              {totalPipelines.toLocaleString()}
+            </span>
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${badgeVariant}`}>
+              {runIntensity}
+            </span>
+          </div>
+        </div>
 
         <div className="flex gap-3 pt-1">
           <Button type="submit" disabled={startJobMutation.isPending} size="lg" className="grow">

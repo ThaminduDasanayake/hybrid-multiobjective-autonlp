@@ -14,6 +14,7 @@ import { useStore } from "../store";
 import JobSelectorTable from "../components/JobSelectorTable";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
+import HowItWorksModal from "../components/HowItWorksModal";
 import { OBJECTIVES } from "@/constants.js";
 
 const Home = () => {
@@ -64,11 +65,12 @@ const Home = () => {
           ))}
         </div>
 
-        <div className="mt-6 flex justify-center">
+        <div className="mt-6 flex justify-center gap-4">
           <Button onClick={() => navigate("/run")} size="lg">
             <Rocket size={16} />
             Start Optimization
           </Button>
+          <HowItWorksModal />
         </div>
       </div>
 

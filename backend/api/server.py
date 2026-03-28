@@ -13,6 +13,7 @@ import json
 import os
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Ensure the backend root (the directory containing automl/, utils/, etc.) is on
@@ -83,6 +84,12 @@ class JobConfig(BaseModel):
     seed: int = Field(default=42, ge=0, description="Random seed for reproducibility")
 
 
+class FeedbackCreate(BaseModel):
+    name: str | None = None
+    message: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 # Job statuses that mean no more updates will ever come.
 _TERMINAL_STATES = {"completed", "failed", "terminated"}
 
@@ -106,6 +113,15 @@ def create_job(config: JobConfig):
 def list_jobs():
     """Return all jobs sorted by start time (newest first), enriched with dataset_name."""
     return _job_manager.list_jobs()
+
+
+@app.post("/api/feedback", status_code=201)
+def create_feedback(feedback: FeedbackCreate):
+    """Save user feedback to the database."""
+    db = get_db()
+    feedback_dict = feedback.model_dump()
+    result = db.feedback.insert_one(feedback_dict)
+    return {"message": "Feedback submitted successfully", "id": str(result.inserted_id)}
 
 
 @app.get("/api/jobs/{job_id}/result")
