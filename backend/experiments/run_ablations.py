@@ -1,29 +1,10 @@
-#!/usr/bin/env python
-"""
-Ablation study runner for T-AutoNLP.
+"""CLI runner for T-AutoNLP ablation studies.
 
-Runs the AutoML pipeline under different optimization modes to evaluate the
-contribution of each objective.  Each mode changes the DEAP fitness weights
-while leaving everything else constant.
-
-Usage examples
---------------
-# Default 3-objective run:
+Examples:
     python experiments/run_ablations.py
-
-# Single-objective (F1 only):
     python experiments/run_ablations.py --mode single_f1
-
-# Two-objective (F1 + Latency):
-    python experiments/run_ablations.py --mode multi_2d
-
-# GA-only (no Bayesian Optimization):
     python experiments/run_ablations.py --disable-bo
-
-# Custom parameters:
-    python experiments/run_ablations.py --mode multi_3d \\
-        --dataset imdb --max-samples 3000 --pop-size 30 \\
-        --generations 15 --bo-calls 20 --output-dir results/ablations
+    python experiments/run_ablations.py --mode multi_3d --dataset imdb --max-samples 3000
 """
 
 import argparse
@@ -127,7 +108,6 @@ def main() -> None:
     logger.info(f"BO calls      : {args.bo_calls}")
     logger.info(f"Disable BO    : {args.disable_bo}")
 
-    # --- Load data ---
     data_loader = DataLoader(cache_dir="./data")
     X_train, y_train = data_loader.load_dataset(
         args.dataset,
@@ -136,7 +116,6 @@ def main() -> None:
     )
     logger.info(f"Loaded {len(X_train)} training samples")
 
-    # --- Run AutoML ---
     automl = HybridAutoML(
         X_train=X_train,
         y_train=y_train,
@@ -152,9 +131,7 @@ def main() -> None:
     results = automl.run()
     elapsed = time.time() - start
 
-    # --- Compute metrics ---
     analyzer = ParetoAnalyzer()
-    # metrics = analyzer.compute_metrics(results["all_solutions"])]
     metrics = analyzer.compute_metrics(results.get("all_solutions", []))
     if not metrics:
         logger.warning("No valid solutions were produced; writing empty metrics.")
@@ -167,7 +144,6 @@ def main() -> None:
             "hypervolume": 0.0,
         }
 
-    # --- Print summary ---
     print("\n" + "=" * 60)
     print(f"  Ablation Results  —  mode = {args.mode}")
     print("=" * 60)
@@ -182,7 +158,6 @@ def main() -> None:
     print(f"  Runtime                   : {elapsed:.1f}s")
     print("=" * 60 + "\n")
 
-    # --- Save results ---
     payload = {
         "mode": args.mode,
         "weights": weights,
@@ -207,8 +182,6 @@ def main() -> None:
         "results": to_python_type(results),
     }
 
-    # When a parent job ID is provided, write the ablation result to MongoDB
-    # (nested inside the parent job document).  Otherwise, write to a local file.
     if args.job_id:
         from api.db import get_db
 

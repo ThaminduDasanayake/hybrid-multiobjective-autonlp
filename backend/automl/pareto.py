@@ -1,12 +1,8 @@
-"""
-Pareto dominance utilities used by the core AutoML engine.
+"""Pareto dominance primitives for the AutoML engine.
 
-Extracted here so that automl/ does not depend on experiments/ — the correct
-dependency direction is: experiments → automl, not the other way around.
-
-experiments/evaluation.ParetoAnalyzer delegates to these functions for
-dominance checking and front extraction; it adds hypervolume, knee-point,
-and metrics aggregation on top.
+Extracted here to keep the dependency direction experiments → automl.
+ParetoAnalyzer in utils/evaluation.py delegates to these functions and adds
+hypervolume, knee-point, and metrics aggregation on top.
 """
 
 from typing import Any, Dict, List

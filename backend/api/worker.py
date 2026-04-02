@@ -1,27 +1,16 @@
 """
-Worker functions executed in separate processes via ProcessPoolExecutor.
+Worker entry points executed in separate processes via ProcessPoolExecutor.
 
-Both entry points (run_automl_job and run_ablation) are module-level functions
-so Python's pickle mechanism can locate them under the 'spawn' start method
-(the macOS/Python 3.12+ default).
-
-All heavy ML imports are deferred inside the function bodies so they are only
-loaded in the worker process, never in the main FastAPI process.
-
-IPC: MongoDB (jobs collection) — worker creates its own MongoClient after spawn.
-Cancellation: cooperative via stop_requested field checked in progress_callback.
+Module-level functions are required for pickling under the 'spawn' start method
+(macOS/Python 3.12+ default). Heavy ML imports are deferred to worker bodies so
+the main FastAPI process never loads them.
 """
 
 from contextlib import contextmanager
 
 
 def _ensure_sys_path(backend_root_str: str) -> None:
-    """Insert backend root into sys.path so local packages are importable.
-
-    Required in 'spawn' mode (macOS default since Python 3.12) because worker
-    processes start fresh and do not inherit the parent's sys.path.
-    # TODO: remove once the project adopts a proper src/ package layout.
-    """
+    """Insert backend root into sys.path so local packages are importable in spawned workers."""
     import sys
 
     if backend_root_str not in sys.path:
@@ -30,17 +19,9 @@ def _ensure_sys_path(backend_root_str: str) -> None:
 
 @contextmanager
 def _job_file_logging(job_id: str, backend_root_str: str):
-    """Attach a per-job RotatingFileHandler to the root logger.
+    """Attach a per-job RotatingFileHandler to the root logger for the duration of a worker run.
 
-    All sub-component loggers (automl, evaluator, search_engine, …) use
-    get_logger() without a log_file, so their output goes to the spawned
-    process's stdout — which is invisible to the server.  Attaching one shared
-    handler to the root logger captures every logger in the worker process into
-    a single, readable job log file.
-
-    The context manager guarantees cleanup even if an unexpected exception
-    escapes the try/except in run_automl_job, preventing file-descriptor leaks
-    across reused ProcessPoolExecutor workers.
+    Guarantees handler cleanup on exit to prevent file-descriptor leaks across reused workers.
     """
     import logging
     from logging.handlers import RotatingFileHandler
@@ -97,30 +78,13 @@ def _format_metrics(raw: dict | None) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
 # Tracked job entry point
-# ---------------------------------------------------------------------------
 
 
 def run_automl_job(
     job_id: str, backend_root_str: str, mongo_uri: str, db_name: str
 ) -> None:
-    """Run a tracked AutoML job inside a ProcessPoolExecutor worker.
-
-    Writes progress to MongoDB on every generation callback so the FastAPI
-    SSE endpoint can stream live updates to the React client.  Writes final
-    results to the same MongoDB document on completion.
-
-    Cancellation is cooperative: the progress_callback raises
-    _TerminationRequested when the ``stop_requested`` field is set in MongoDB.
-    The caller sets that field via JobManager.terminate_job().
-
-    Args:
-        job_id:           Unique job identifier (MongoDB _id).
-        backend_root_str: Absolute path to the backend package root.
-        mongo_uri:        MongoDB connection URI.
-        db_name:          MongoDB database name.
-    """
+    """Run a tracked AutoML job, streaming progress to MongoDB on every generation callback."""
     _ensure_sys_path(backend_root_str)
 
     import os
@@ -142,18 +106,18 @@ def run_automl_job(
     from utils.evaluation import ParetoAnalyzer
     from utils.logger import get_logger
 
-    # Worker creates its own MongoClient (never share across fork boundary).
+    # Workers must create their own MongoClient; connections cannot be shared across fork boundaries.
     client = MongoClient(mongo_uri, tlsCAFile=certifi.where())
     db = client[db_name]
     jobs = db.jobs
 
     def _update_status(fields: dict) -> None:
-        """Update status fields in MongoDB."""
+        """Write status fields to MongoDB."""
         fields["last_updated"] = time.time()
         jobs.update_one({"_id": job_id}, {"$set": fields})
 
     def _is_stop_requested() -> bool:
-        """Check if termination has been requested."""
+        """Return True if the job's stop_requested flag is set in MongoDB."""
         doc = jobs.find_one({"_id": job_id}, {"stop_requested": 1})
         return bool(doc and doc.get("stop_requested"))
 
@@ -161,11 +125,9 @@ def run_automl_job(
         logger = get_logger("worker")
         logger.info(f"Worker started for job {job_id} (PID {os.getpid()})")
 
-        # ----- termination sentinel ----------------------------------------
         class _TerminationRequested(BaseException):
-            """Raised to stop the job cooperatively; bypasses bare except Exception."""
+            """Raised cooperatively when stop_requested is set; bypasses bare except Exception."""
 
-        # ----- mark running -------------------------------------------------
         _update_status({"status": "running", "message": "Loading dataset..."})
 
         try:
@@ -204,7 +166,6 @@ def run_automl_job(
                     "message": progress_info.get("message"),
                 }
 
-                # Enrich with live metrics from the result store.
                 try:
                     store = automl.result_store
                     total_lookups = store.cache_hit_count + store.cache_miss_count
@@ -232,7 +193,9 @@ def run_automl_job(
                     )
                     fields["best_f1"] = round(float(best_f1), 4)
                     fields["best_latency_ms"] = round(float(best_latency_ms), 4)
-                    fields["best_interpretability"] = round(float(best_interpretability), 4)
+                    fields["best_interpretability"] = round(
+                        float(best_interpretability), 4
+                    )
                     fields["cache_hit_rate"] = cache_hit_rate
                     fields["total_evaluated"] = len(store.eval_cache)
                 except Exception:
@@ -288,9 +251,8 @@ def run_automl_job(
             client.close()
 
 
-# ---------------------------------------------------------------------------
+
 # Ablation study entry point
-# ---------------------------------------------------------------------------
 
 
 def run_ablation(
@@ -307,25 +269,7 @@ def run_ablation(
     mongo_uri: str = "",
     db_name: str = "",
 ) -> None:
-    """Run one ablation study and save the result to MongoDB.
-
-    Fire-and-forget: no status tracking, no progress callback, no cancellation.
-    Call GET /api/ablations to check for new results after the run finishes.
-
-    Args:
-        mode:             DEAP optimization mode (single_f1 / multi_2d / multi_3d).
-        parent_job_id:    ID of the parent job whose config this ablation inherits.
-        dataset:          Dataset identifier (resolved from parent job config).
-        disable_bo:       If True, skip Bayesian Optimization (GA-only ablation).
-        max_samples:      Maximum training samples.
-        population_size:  GA population size.
-        n_generations:    Number of GA generations.
-        bo_calls:         BO calls (ignored when disable_bo=True).
-        seed:             Random seed for reproducibility.
-        backend_root_str: Absolute path to the backend package root.
-        mongo_uri:        MongoDB connection URI.
-        db_name:          MongoDB database name.
-    """
+    """Run one ablation study and write the result to the parent job's ablations field in MongoDB."""
     _ensure_sys_path(backend_root_str)
 
     import time
@@ -345,7 +289,6 @@ def run_ablation(
     from utils.evaluation import ParetoAnalyzer
     from utils.logger import get_logger
 
-    # Worker creates its own MongoClient (never share across fork boundary).
     client = MongoClient(mongo_uri, tlsCAFile=certifi.where())
     db = client[db_name]
     jobs = db.jobs
@@ -368,7 +311,6 @@ def run_ablation(
         try:
             weights = OPTIMIZATION_MODES.get(mode, [1.0, -1.0, 1.0])
 
-            # Random search inherently disables BO
             if mode == "random_search":
                 disable_bo = True
 
@@ -399,8 +341,7 @@ def run_ablation(
             analyzer = ParetoAnalyzer()
             raw = analyzer.compute_metrics(results.get("all_solutions", []))
             metrics = _format_metrics(raw)
-            # Ablation results omit knee_point (not needed for batch study comparisons).
-            metrics.pop("knee_point", None)
+            metrics.pop("knee_point", None)  # Not needed for batch comparison studies.
 
             payload = {
                 "mode": mode,

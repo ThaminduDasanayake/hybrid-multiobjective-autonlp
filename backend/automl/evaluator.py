@@ -19,13 +19,7 @@ ERROR_FITNESS = (0.0, 1e7, 0.0)
 
 
 class PipelineEvaluator:
-    """
-    Evaluates pipeline individuals using Bayesian Optimization.
-    Calculates multi-objective fitness scores:
-    1. F1 Score (Maximize)
-    2. Latency (Minimize)
-    3. Interpretability (Maximize)
-    """
+    """Evaluates GA pipeline individuals and returns (F1, latency, interpretability) fitness tuples."""
 
     def __init__(
         self,
@@ -189,22 +183,15 @@ class PipelineEvaluator:
                 self.objective_ranges[obj_name]["max"] = value
 
     def _validate_structure(self, scaler: str, dim_reduction: str, model: str) -> bool:
-        """
-        Validate structure for compatibility.
+        """Return False if the pipeline violates component compatibility constraints.
 
-        Rules:
-        1. MultinomialNB requires non-negative input.
-           - Incompatible with StandardScaler (produces negative values via centering).
-           - Incompatible with RobustScaler (uses median/IQR, can produce negatives).
-           - Incompatible with PCA (TruncatedSVD produces negative values).
+        MultinomialNB requires non-negative input, so it is incompatible with
+        scalers that can produce negative values (standard, robust) and with
+        TruncatedSVD (pca), which also produces negatives.
         """
         if model == "naive_bayes":
-            # Rule 1: Scalers that can produce negative values
             if scaler in ("standard", "robust"):
                 return False
-
-            # Rule 2: Dim Reduction
-            # PCA (TruncatedSVD) produces negative values.
             if dim_reduction == "pca":
                 return False
 

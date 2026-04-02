@@ -1,18 +1,11 @@
 """
 Job manager for the FastAPI backend.
 
-Runs AutoML jobs in a ProcessPoolExecutor so they never block the async
-event loop.  All job state lives in MongoDB — the local filesystem is
-only used for Python log files and dataset caches.
+Runs AutoML jobs in a ProcessPoolExecutor so they never block the async event loop.
+All job state lives in MongoDB; the filesystem is used only for log files and dataset caches.
 
-IPC:
-  - Worker writes progress to  MongoDB (jobs collection)  on every callback.
-  - FastAPI routes read that document on demand (SSE polling from the React client).
-  - Worker writes final results to the same document on completion.
-
-Cancellation (2-tier, cooperative):
-  1. Set stop_requested=True in MongoDB → progress_callback raises _TerminationRequested.
-  2. future.cancel()                    → cancels queued-but-not-yet-started jobs.
+Cancellation is two-tier: setting stop_requested=True in MongoDB triggers cooperative exit
+inside the worker; future.cancel() cancels jobs that are still queued.
 """
 
 import time
@@ -22,9 +15,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from utils.logger import get_logger
-
 from api.db import get_db, get_db_name, get_mongo_uri
+from utils.logger import get_logger
 
 logger = get_logger("job_manager")
 
@@ -49,14 +41,10 @@ class JobManager:
         self.db = get_db()
         self.jobs = self.db.jobs
 
-    # ------------------------------------------------------------------ reads
+    # reads
 
     def get_status(self, job_id: str) -> dict[str, Any] | None:
-        """Read the current status of a job from MongoDB.
-
-        Returns a flat dict with status fields (excluding the large result
-        and ablations payloads), or None if the job doesn't exist.
-        """
+        """Return status fields for a job (excluding large result/ablations payloads), or None."""
         doc = self.jobs.find_one({"_id": job_id}, _STATUS_PROJECTION)
         if doc is None:
             return None
@@ -66,11 +54,7 @@ class JobManager:
         return doc
 
     def get_result(self, job_id: str) -> dict[str, Any] | None:
-        """Read the result for a completed job from MongoDB.
-
-        Returns the result dict with config attached, or None if the job
-        doesn't exist or hasn't completed yet.
-        """
+        """Return the result dict (with config attached) for a completed job, or None."""
         doc = self.jobs.find_one({"_id": job_id}, {"result": 1, "config": 1})
         if doc is None or doc.get("result") is None:
             return None
@@ -79,15 +63,8 @@ class JobManager:
         return result
 
     def list_jobs(self) -> dict[str, dict[str, Any]]:
-        """List all jobs sorted by start_time descending.
-
-        Returns a dict keyed by job_id, each value containing status fields
-        enriched with dataset_name from the stored config.
-        """
-        cursor = self.jobs.find(
-            {},
-            _STATUS_PROJECTION,  # exclusion-only: {"result": 0, "ablations": 0}
-        ).sort("start_time", -1)
+        """Return all jobs sorted by start_time descending, with dataset_name flattened in."""
+        cursor = self.jobs.find({}, _STATUS_PROJECTION).sort("start_time", -1)
 
         jobs: dict[str, dict[str, Any]] = {}
         for doc in cursor:
@@ -100,7 +77,7 @@ class JobManager:
             jobs[job_id] = doc
         return jobs
 
-    # ------------------------------------------------------------------ process management
+    # process management
 
     def create_job(self, config: dict[str, Any]) -> str:
         """Create a new AutoML job and submit it to the executor."""
@@ -141,13 +118,7 @@ class JobManager:
         return job_id
 
     def terminate_job(self, job_id: str) -> bool:
-        """Stop a job cooperatively, or cancel it if still queued.
-
-        1. Set stop_requested=True in MongoDB → worker detects and exits cleanly.
-        2. future.cancel()                    → cancels the job if queued.
-
-        Returns True if the job was found and marked terminated.
-        """
+        """Signal cooperative termination via MongoDB; cancel the future if still queued."""
         result = self.jobs.update_one(
             {"_id": job_id},
             {"$set": {
@@ -169,12 +140,7 @@ class JobManager:
         return True
 
     def delete_job(self, job_id: str) -> bool:
-        """Permanently delete a job from MongoDB.
-
-        Only jobs in a terminal state (completed, failed, terminated) can be
-        deleted.  Returns True on success, False if the job doesn't exist or
-        is still active.
-        """
+        """Permanently delete a terminal job from MongoDB and remove its log file."""
         if not job_id or "/" in job_id or "\\" in job_id or job_id.startswith("."):
             logger.warning(f"Invalid job_id format: {job_id}")
             return False
@@ -195,7 +161,6 @@ class JobManager:
 
         self.jobs.delete_one({"_id": job_id})
 
-        # Clean up the log file (logs remain on the filesystem).
         log_path = Path(_BACKEND_ROOT) / "logs" / f"run_{job_id}.log"
         try:
             if log_path.exists():

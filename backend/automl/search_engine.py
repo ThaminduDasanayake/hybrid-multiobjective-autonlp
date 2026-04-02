@@ -1,26 +1,30 @@
 import random
 import time
-import numpy as np
 from typing import Callable, List, Optional
+
+import numpy as np
 from deap import base, creator, tools
-from utils.logger import get_logger
-from .persistence import ResultStore
-from .evaluator import PENALTY_FITNESS, ERROR_FITNESS
 
 from utils.formatting import format_time
+from utils.logger import get_logger
+
+from .evaluator import ERROR_FITNESS, PENALTY_FITNESS
+from .persistence import ResultStore
 
 logger = get_logger("search_engine")
 
 # Supported optimization modes for ablation studies.
 # Each maps to a DEAP fitness-weight tuple: (F1, Latency, Interpretability).
-# NOTE: DEAP divides wvalues by weights internally, so exact 0.0 would cause
-# ZeroDivisionError.  We use a negligible epsilon (1e-10) for "ignored"
-# objectives — the selection pressure is effectively zero.
+# Epsilon (1e-10) rather than 0.0 avoids ZeroDivisionError inside DEAP for ignored objectives.
 OPTIMIZATION_MODES = {
     "multi_3d": (1.0, -1.0, 1.0),  # Default: 3-objective
     "single_f1": (1.0, -1e-10, -1e-10),  # Ablation: F1 only
     "multi_2d": (1.0, -1.0, -1e-10),  # Ablation: F1 + Latency
-    "random_search": (1.0, -1.0, 1.0),  # Baseline: same weights as multi_3d, no GA operators
+    "random_search": (
+        1.0,
+        -1.0,
+        1.0,
+    ),  # Baseline: same weights as multi_3d, no GA operators
 }
 
 
@@ -57,20 +61,13 @@ class EvolutionarySearch:
         self.stagnation_counter = 0
         self.last_pareto_hash = None
 
-        # Compute-Aware Curated Gene Pool
         self.gene_pool = {
-            # Scalers: Excluded "standard" (slow on sparse matrices, minimal benefit)
             "scaler": [None, "maxabs", "robust"],
-            # Dim reduction: Excluded "pca" (requires densification → memory issues)
             "dim_reduction": [None, "select_k_best"],
-            # Vectorizers: Both TF-IDF and Count included (standard NLP approaches)
             "vectorizer": ["tfidf", "count"],
-            # Models: Excluded "random_forest" (slow), "sgd" (unstable on small data),
-            # "lightgbm" (low interpretability). Focus on interpretable linear models
+            # Restricted to interpretable linear models; forest/ensemble models excluded.
             "model": ["logistic", "naive_bayes", "svm"],
-            # N-grams: Excluded "1-3" (vocabulary explosion, minimal gain)
             "ngram_range": ["1-1", "1-2"],
-            # Max features: Excluded 20000 (diminishing returns vs 10000)
             "max_features": [5000, 10000, "None"],
         }
 
@@ -96,10 +93,7 @@ class EvolutionarySearch:
         return str(val)
 
     def _setup_deap(self):
-        # DEAP's creator.create writes module-level globals.  We delete and
-        # re-create them each time so that the weights match the requested
-        # optimization_mode.  This is safe: each worker process only runs one
-        # configuration, and the ablation script spawns fresh processes.
+        # Reset DEAP globals to ensure fitness weights match the current optimization mode
         if hasattr(creator, "Individual"):
             del creator.Individual
         if hasattr(creator, "FitnessMulti"):
@@ -115,7 +109,7 @@ class EvolutionarySearch:
 
         self.toolbox = base.Toolbox()
 
-        # Register gene attribute factories using _random_gene
+        # Register attribute generation functions for pipeline genes
         self.toolbox.register("attr_scaler", lambda: self._random_gene("scaler"))
         self.toolbox.register(
             "attr_dim_reduction", lambda: self._random_gene("dim_reduction")
@@ -131,7 +125,7 @@ class EvolutionarySearch:
             "attr_max_features", lambda: self._random_gene("max_features")
         )
 
-        # Individual structure: [scaler, dim_reduction, vectorizer, model, ngram_range, max_features]
+        # Defines individual structure: [scaler, dim_reduction, vectorizer, model, ngram_range, max_features]
         self.toolbox.register(
             "individual",
             tools.initCycle,
@@ -150,10 +144,7 @@ class EvolutionarySearch:
             "population", tools.initRepeat, list, self.toolbox.individual
         )
 
-        # cxUniform is used instead of cxTwoPoint because the chromosome is composed
-        # of categorical genes with no meaningful ordering. Two-point crossover relies
-        # on gene adjacency (a syntactic property), while uniform crossover treats each
-        # gene independently — more appropriate for unordered categorical representations.
+        # Uniform crossover is appropriate because categorical genes have no meaningful ordering.
         self.toolbox.register("mate", tools.cxUniform, indpb=0.5)
         self.toolbox.register("mutate", self._mutate_individual, indpb=0.5)
         self.toolbox.register("select", tools.selNSGA2)
@@ -178,12 +169,8 @@ class EvolutionarySearch:
     def _check_early_stopping(
         self, pareto_front: List, new_individuals_ratio: float
     ) -> bool:
-        # Only check stagnation if we are actually exploring new space
-        # If > 20% of population was new, we are exploring.
+        # Only count stagnation when the generation introduced genuinely new individuals.
         if new_individuals_ratio < 0.2:
-            # If we are just re-evaluating old stuff, don't count towards stagnation
-            # or maybe we should? If we can't find anything new, maybe we are done?
-            # User requirement: "Only count generations where at least 20% of the population was actually new"
             return False
 
         # Create hash of Pareto front solutions
@@ -278,9 +265,7 @@ class EvolutionarySearch:
             new_individuals_count = sum(
                 1
                 for ind in invalid_ind
-                if not self.result_store.peek(
-                    self.result_store.get_individual_key(ind)
-                )
+                if not self.result_store.peek(self.result_store.get_individual_key(ind))
             )
             new_individuals_ratio = (
                 new_individuals_count / len(population) if population else 0

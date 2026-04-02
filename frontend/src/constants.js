@@ -13,7 +13,7 @@ export const OBJECTIVES = [
   {
     icon: Clock,
     title: "Latency",
-    description: "Minimises inference time to meet real-time deployment constraints",
+    description: "Minimizes inference time to meet real-time deployment constraints",
   },
   {
     icon: Lightbulb,

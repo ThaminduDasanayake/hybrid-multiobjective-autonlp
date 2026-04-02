@@ -33,11 +33,9 @@ class HybridAutoML:
         self.random_state = random_state
         self.optimization_mode = optimization_mode
 
-        # Random search inherently skips BO
         if optimization_mode == "random_search":
             disable_bo = True
 
-        # Initialize components
         self.result_store = ResultStore()
 
         self.bo_optimizer = BayesianOptimizer(
@@ -72,16 +70,12 @@ class HybridAutoML:
         total_time = time.time() - start_time
         logger.info(f"Total runtime: {total_time:.2f}s")
 
-        # Prepare results
         all_solutions = list(self.result_store.eval_cache.values())
 
-        # Recompute the global Pareto front from all evaluated solutions.
-        # Exclude penalty/invalid entries so dominance analysis only covers valid results.
+        # Exclude invalid/penalty entries before dominance analysis.
         valid_solutions = [s for s in all_solutions if s.get("status") == "success"]
         pareto_solutions = get_pareto_front(valid_solutions)
 
-        # Calculate Search Summary & Learning Curve
-        # Retrieve penalty history directly from the search engine (Clean Separation)
         penalty_counts = self.search_engine.get_penalty_history()
         total_penalties = sum(penalty_counts)
 

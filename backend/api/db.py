@@ -1,17 +1,3 @@
-"""
-Centralised MongoDB connection for T-AutoNLP.
-
-Usage (main process):
-    from api.db import get_db
-    db = get_db()
-    db.jobs.find_one({"_id": job_id})
-
-Usage (worker process — must create its own client after spawn):
-    from api.db import get_mongo_uri, get_db_name
-    client = MongoClient(get_mongo_uri())
-    db = client[get_db_name()]
-"""
-
 import os
 
 import certifi

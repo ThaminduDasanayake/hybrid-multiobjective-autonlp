@@ -2,7 +2,6 @@
  * API client for the T-AutoNLP FastAPI backend.
  *
  * Base URL strategy
- * -----------------
  * In development Vite proxies /api/* → localhost:8000 (see vite.config.js),
  * so VITE_API_BASE_URL is intentionally left empty in .env and relative paths
  * work without CORS overhead.
@@ -12,7 +11,6 @@
  * and every fetch/EventSource will use it automatically.
  *
  * SSE streams
- * -----------
  * Use the exported `streamUrl(jobId)` helper when constructing an EventSource
  * so the base URL is applied consistently:
  *

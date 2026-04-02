@@ -3,45 +3,24 @@ import pickle
 from pathlib import Path
 from typing import Tuple, List
 import numpy as np
-from datasets import load_dataset
+from datasets import load_datasetØ
 from sklearn.datasets import fetch_20newsgroups
 
 
 class DataLoader:
-    """
-    Manages dataset loading and caching for the AutoML system.
-
-    This class ensures datasets are downloaded once and cached locally
-    to avoid redundant downloads and speed up subsequent runs.
-    """
+    """Loads and locally caches benchmark datasets for the AutoML system."""
 
     def __init__(self, cache_dir: str = "./data"):
-        """
-        Initialize the DataLoader.
-
-        Args:
-            cache_dir: Directory to cache downloaded datasets
-        """
+        """Initialize the DataLoader with a local cache directory."""
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True, parents=True)
 
     def load_dataset(
         self, dataset_name: str, subset: str = "train", max_samples: int = None
     ) -> Tuple[List[str], np.ndarray]:
-        """
-        Load a dataset, using cache if available.
-
-        Args:
-            dataset_name: Name of the dataset ('20newsgroups', 'imdb', 'ag_news', 'banking77')
-            subset: Which subset to load ('train', 'test')
-            max_samples: Maximum number of samples to return (for faster prototyping)
-
-        Returns:
-            Tuple of (texts, labels) where texts is a list of strings and labels is a numpy array
-        """
+        """Return (texts, labels) for the requested dataset split, loading from cache if available."""
         cache_file = self.cache_dir / f"{dataset_name}_{subset}.pkl"
 
-        # Check cache first
         if cache_file.exists():
             print(f"Loading {dataset_name} from cache...")
             with open(cache_file, "rb") as f:
@@ -51,11 +30,9 @@ class DataLoader:
             print(f"Downloading {dataset_name}...")
             texts, labels = self._download_dataset(dataset_name, subset)
 
-            # Cache the dataset
             with open(cache_file, "wb") as f:
                 pickle.dump({"texts": texts, "labels": labels}, f)
 
-        # Apply max_samples if specified
         if max_samples is not None and len(texts) > max_samples:
             rng = np.random.RandomState(42)
             indices = rng.choice(len(texts), max_samples, replace=False)
@@ -67,16 +44,7 @@ class DataLoader:
     def _download_dataset(
         self, dataset_name: str, subset: str
     ) -> Tuple[List[str], np.ndarray]:
-        """
-        Download dataset from Hugging Face or sklearn.
-
-        Args:
-            dataset_name: Name of the dataset
-            subset: Which subset to load
-
-        Returns:
-            Tuple of (texts, labels)
-        """
+        """Download a dataset from Hugging Face or sklearn and return (texts, labels)."""
         if dataset_name == "20newsgroups":
             return self._load_20newsgroups(subset)
         elif dataset_name == "imdb":
@@ -120,15 +88,7 @@ class DataLoader:
         return texts, labels
 
     def get_dataset_info(self, dataset_name: str) -> dict:
-        """
-        Get information about a dataset.
-
-        Args:
-            dataset_name: Name of the dataset
-
-        Returns:
-            Dictionary with dataset metadata
-        """
+        """Return metadata dict for a supported dataset."""
         info = {
             "20newsgroups": {
                 "description": "Multi-class document classification (20 categories)",

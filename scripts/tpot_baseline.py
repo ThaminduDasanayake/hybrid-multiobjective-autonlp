@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TPOT baseline benchmark for T-AutoNLP comparison.
 
-Runs TPOTClassifier as a single-objective (F1 macro) AutoML baseline on the
+Runs TPOTClassifier as a single-objective (F1 weighted) AutoML baseline on the
 same text classification datasets used by T-AutoNLP.  Results can be compared
 against the multi-objective GA+BO system to demonstrate the value of
 Pareto-optimal trade-offs.
@@ -96,7 +96,7 @@ def main() -> None:
 
     # ── Configure & run TPOT ──────────────────────────────────────────────
     tpot_params: dict = {
-        "scoring": "f1_macro",
+        "scoring": "f1_weighted",
         "random_state": args.seed,
         "verbosity": 2,
         "n_jobs": -1,
@@ -117,13 +117,31 @@ def main() -> None:
 
     # ── Evaluate ──────────────────────────────────────────────────────────
     y_pred = tpot.predict(X_test)
-    test_f1 = float(f1_score(y_test, y_pred, average="macro"))
+    test_f1 = float(f1_score(y_test, y_pred, average="weighted"))
+
+    # ── Inference latency (100-sample probe) ──────────────────────────────
+    # Use exactly 100 samples so the per-sample figure is directly comparable
+    # to T-AutoNLP's latency measurement.
+    latency_samples = X_test[:100]
+    latency_start = time.perf_counter()
+    tpot.predict(latency_samples)
+    latency_end = time.perf_counter()
+    latency_ms_per_sample = ((latency_end - latency_start) / 100) * 1000
+
+    # ── Pipeline step breakdown ───────────────────────────────────────────
+    pipeline_steps = [
+        {"step": name, "estimator": type(estimator).__name__}
+        for name, estimator in tpot.fitted_pipeline_.steps
+    ]
 
     print(f"\n{'=' * 50}")
     print(f"TPOT Results for '{args.dataset}':")
-    print(f"  Best F1 (macro): {test_f1:.4f}")
-    print(f"  Runtime:         {elapsed:.1f}s ({elapsed / 60:.1f}m)")
-    print(f"  Best pipeline:   {tpot.fitted_pipeline_}")
+    print(f"  Best F1 (weighted):            {test_f1:.4f}")
+    print(f"  Runtime:                       {elapsed:.1f}s ({elapsed / 60:.1f}m)")
+    print(f"  Per-sample inference latency:  {latency_ms_per_sample:.4f} ms")
+    print(f"  Pipeline steps ({len(pipeline_steps)}):")
+    for s in pipeline_steps:
+        print(f"    [{s['step']}] {s['estimator']}")
     print(f"{'=' * 50}")
 
     # ── Export JSON results ───────────────────────────────────────────────
@@ -131,9 +149,11 @@ def main() -> None:
         result = {
             "baseline": "tpot",
             "dataset": args.dataset,
-            "best_f1_macro": test_f1,
+            "best_f1_weighted": test_f1,
+            "inference_latency_ms_per_sample": latency_ms_per_sample,
             "runtime_seconds": elapsed,
-            "pipeline": str(tpot.fitted_pipeline_),
+            "pipeline_str": str(tpot.fitted_pipeline_),
+            "pipeline_steps": pipeline_steps,
             "config": {
                 "max_samples": args.max_samples,
                 "population_size": args.population_size,

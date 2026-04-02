@@ -1,10 +1,4 @@
-"""
-Structural complexity proxy score for NLP pipelines.
-
-Provides a single source of truth for the interpretability-by-design
-scoring function, shared by PipelineEvaluator (during GA search) and
-RandomSearchBaseline (for fair comparison).
-"""
+"""Structural interpretability scoring function, shared by PipelineEvaluator and ablation baselines."""
 
 from typing import Any, Dict
 
@@ -18,25 +12,11 @@ def interpretability_score(
     max_features: Any,
     params: Dict[str, Any],
 ) -> float:
-    """
-    Structural complexity proxy score (0.0 to 1.0).
+    """Return a structural interpretability score in [0, 1] (Lipton, 2016; Rudin, 2019).
 
-    This is a proxy for interpretability-by-design, scoring how transparent a
-    pipeline's architecture is without requiring post-hoc explanation tools.
-    Grounded in the principle that models with fewer, more semantically direct
-    features and simpler decision boundaries are inherently more auditable
-    (Lipton, 2016; Rudin, 2019).
-
-    Components and rationale:
-      - Model complexity           (30%): Linear models expose per-feature weights
-                                          directly; ensembles require aggregation.
-      - Feature space transparency (20%): Vectorizer type x feature count.
-                                          Both what features are and how many must
-                                          be audited determine practical transparency.
-      - Preprocessing complexity   (20%): Steps that transform the feature space
-                                          break the direct word→feature mapping.
-      - Hyperparameter simplicity  (30%): Wider n-grams and weaker regularisation
-                                          increase the effective feature space size.
+    Weighted sum of four structural components: model complexity (30%),
+    feature space transparency (20%), preprocessing complexity (20%),
+    and hyperparameter simplicity (30%).
     """
     score = 0.0
 

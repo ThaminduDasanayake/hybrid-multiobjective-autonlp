@@ -1,10 +1,4 @@
-"""
-Shared pipeline construction logic for NLP pipelines.
-
-Provides a single source of truth for building sklearn Pipelines from
-component configurations, used by both the Bayesian Optimizer and
-the hold-out inference script.
-"""
+"""Single source of truth for building sklearn Pipelines from component configurations."""
 
 import numpy as np
 from typing import Any, Dict, Optional
@@ -29,26 +23,7 @@ def build_pipeline(
     params: Dict[str, Any],
     random_state: int = 42,
 ) -> Pipeline:
-    """
-    Build a sklearn Pipeline from component configuration and hyperparameters.
-
-    This is the single source of truth for pipeline construction, shared by
-    the Bayesian Optimizer (during search) and run_final_inference.py (for
-    hold-out evaluation).
-
-    Args:
-        scaler_type: Type of scaler ('standard', 'maxabs', 'robust', or None)
-        dim_reduction_type: Dim reduction ('pca', 'select_k_best', or None)
-        vectorizer_type: Vectorizer ('tfidf' or 'count')
-        model_type: Classifier ('logistic', 'naive_bayes', 'svm')
-        ngram_range: N-gram range string, e.g. '1-2'
-        max_features: Max vocabulary size (int, str of int, or 'None')
-        params: Hyperparameters dict (C, alpha, max_iter, etc.)
-        random_state: Random seed for reproducibility
-
-    Returns:
-        Configured sklearn Pipeline
-    """
+    """Build and return a configured sklearn Pipeline from component names and hyperparameters."""
     steps = []
 
     # 1. Vectorizer

@@ -47,15 +47,7 @@ class BayesianOptimizer:
 
     @staticmethod
     def dataset_profile(X) -> str:
-        """
-        Profile dataset size for adaptive configuration.
-
-        Args:
-            X: Input data
-
-        Returns:
-            Profile string: 'small',
-        """
+        """Return dataset size profile ('small', 'medium', or 'large') for adaptive configuration."""
         n = len(X)
         if n < 2_000:
             return "small"
@@ -75,26 +67,7 @@ class BayesianOptimizer:
         X_train: list,
         y_train: np.ndarray,
     ) -> Dict[str, Any]:
-        """
-        Optimize hyperparameters for a given pipeline configuration.
-
-        Args:
-            scaler_type: Type of scaler ('standard', 'maxabs', 'robust', None)
-            dim_reduction_type: Type of dim reduction ('pca', 'select_k_best', None)
-            vectorizer_type: Type of vectorizer ('tfidf' or 'count')
-            model_type: Type of model ('logistic', 'naive_bayes', 'svm', 'random_forest')
-            ngram_range: Vectorizer n-gram range tuple, e.g. '(1,2)'
-            max_features: Maximum vocabulary size (int or None)
-            X_train: Training texts
-            y_train: Training labels
-
-        Returns:
-            Dictionary containing:
-                - best_params: Best hyperparameters found
-                - best_score: Best cross-validation score
-                - variance: Variance of the best configuration
-                - inference_time: Average inference time per sample
-        """
+        """Run Gaussian Process BO over the hyperparameter search space and return the best result dict."""
         # Measure optimization time
         optimization_start = time.time()
 
@@ -146,8 +119,7 @@ class BayesianOptimizer:
                     random_state=self.random_state,
                 )
 
-                # cross_validate with return_estimator=True gives us the last
-                # fold's fitted model for inference timing — no redundant full fit.
+                # return_estimator=True reuses the last fold's fitted model for latency measurement.
                 cv_result = cross_validate(
                     pipeline,
                     X_train,
@@ -161,7 +133,6 @@ class BayesianOptimizer:
                 score = cv_result["test_score"].mean()
                 scores.append(score)
 
-                # Reuse the last fold's estimator; let the others be GC'd.
                 fitted = cv_result["estimator"][-1]
                 n_test = min(100, len(X_train))
                 inference_start = time.time()
@@ -169,7 +140,7 @@ class BayesianOptimizer:
                 inference_time = (time.time() - inference_start) / n_test
                 inference_times.append(inference_time)
 
-                # BO minimizes, so negate the score
+                # BO minimizes, so negate F1.
                 if np.isnan(score):
                     return 0.0
 
@@ -194,7 +165,7 @@ class BayesianOptimizer:
         for param_name, param_value in zip([s.name for s in space], result.x):
             best_params[param_name] = param_value
 
-        best_score = -result.fun  # Negate back to get actual score
+        best_score = -result.fun  # un-negate to recover F1
 
         # Compute variance from cross-validation
         variance = np.var(scores) if len(scores) > 0 else 0.0
@@ -229,28 +200,18 @@ class BayesianOptimizer:
         y_train,
         optimization_start,
     ) -> Dict[str, Any]:
-        """
-        GA-only fallback: sample one random hyperparameter set from *space*,
-        evaluate it with cross-validation, and return the result.
-
-        On any failure the F1 score is set to 0.0 so the GA can naturally
-        eliminate the bad individual without crashing the run.
-        """
-        # Sample one random point from the search space
+        """Sample one random hyperparameter set and evaluate it; used for the GA-only ablation."""
         random_params = {}
         for dim in space:
             sample = dim.rvs(n_samples=1, random_state=self._rng)
-            # Categorical.rvs() may return a bare scalar string instead of
-            # a list/array when n_samples=1.  Indexing a string would yield
-            # a single character (e.g. "l" from "l1"), so guard against that.
+            # Guard against Categorical.rvs() returning a bare scalar string.
             if isinstance(sample, str):
                 val = sample
             elif isinstance(sample, (list, np.ndarray)):
                 val = sample[0]
             else:
                 val = sample
-            # Categorical dimensions return numpy types (e.g. numpy.str_);
-            # sklearn parameter validators require native Python types.
+            # sklearn validators require native Python types, not numpy scalars.
             if hasattr(val, "item"):
                 val = val.item()
             random_params[dim.name] = val
@@ -272,8 +233,6 @@ class BayesianOptimizer:
                 random_state=self.random_state,
             )
 
-            # cross_validate with return_estimator=True — reuse last fold,
-            # no redundant full fit needed for inference timing.
             cv_result = cross_validate(
                 pipeline,
                 X_train,
@@ -290,7 +249,6 @@ class BayesianOptimizer:
             if np.isnan(score):
                 score = 0.0
 
-            # Reuse the last fold's estimator; let the others be GC'd.
             fitted = cv_result["estimator"][-1]
             n_test = min(100, len(X_train))
             inf_start = time.time()
@@ -323,24 +281,10 @@ class BayesianOptimizer:
         max_features_val: Any,
         n_samples: int,
     ) -> list:
-        """
-        Define the hyperparameter search space.
-
-        Args:
-            dim_reduction_type: Type of dimensionality reduction
-            vectorizer_type: Type of vectorizer
-            model_type: Type of model
-            profile: Dataset profile ('small', 'medium', 'large')
-            max_features_val: Maximum vocabulary size (int or None)
-            n_samples: Number of training samples
-
-        Returns:
-            List of skopt Space objects
-        """
+        """Build the skopt search space for the given pipeline configuration and dataset profile."""
         space = []
 
-        # max_iter is scaled to dataset size: small datasets converge faster,
-        # so capping it avoids wasting BO budget on non-converging configs.
+        # Scale max_iter to dataset size to avoid wasting BO budget on non-converging configs.
         if profile == "small":
             max_iter_logistic = 1000
             max_iter_svm = 1500
@@ -351,20 +295,12 @@ class BayesianOptimizer:
             max_iter_logistic = 3000
             max_iter_svm = 5000
 
-        # Dim Reduction hyperparameters
         if dim_reduction_type == "pca":
-            # Using TruncatedSVD for sparse text data
-            # n_components must be < n_features and < n_samples
-            # We'll tune it as an integer
-            # Max components constrained by n_samples
-            max_components = min(n_samples - 1, 100)
-            if max_components < 10:
-                max_components = 10
-
+            # n_components must be < n_samples; TruncatedSVD is used for sparse text data.
+            max_components = max(10, min(n_samples - 1, 100))
             space.extend([Integer(10, max_components, name="pca_n_components")])
         elif dim_reduction_type == "select_k_best":
-            # Dynamic limit to avoid warnings
-            # If max_features is None, we don't know exact count, but stick to profile default
+            # Cap k at max_features to avoid SelectKBest requesting more features than exist.
             if str(max_features_val) == "None":
                 limit_k = 2000
             else:
@@ -372,14 +308,11 @@ class BayesianOptimizer:
                     limit_k = min(2000, int(max_features_val))
                 except (ValueError, TypeError):
                     limit_k = 2000
-
             space.extend([Integer(100, limit_k, name="k_best_k")])
 
-        # Vectorizer hyperparameters
         if vectorizer_type in ["tfidf", "count"]:
             space.extend(
                 [
-                    # ngram_range and max_features are now fixed structure genes
                     Integer(1, 10, name="min_df"),
                     Real(0.5, 1.0, name="max_df"),
                 ]

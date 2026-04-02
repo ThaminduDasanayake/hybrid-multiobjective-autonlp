@@ -1,13 +1,3 @@
-"""
-FastAPI server for T-AutoNLP.
-
-Start with:
-    cd backend
-    uv run uvicorn api.server:app --reload --port 8000
-
-The React Vite dev server runs on http://localhost:5173 and is allowed via CORS.
-"""
-
 import asyncio
 import json
 import os
@@ -67,7 +57,7 @@ app.add_middleware(
 _job_manager = JobManager()
 
 
-# ---------------------------------------------------------------------- schemas
+# schemas
 
 
 class JobConfig(BaseModel):
@@ -94,7 +84,7 @@ class FeedbackCreate(BaseModel):
 _TERMINAL_STATES = {"completed", "failed", "terminated"}
 
 
-# ---------------------------------------------------------------------- routes
+# routes
 
 
 @app.get("/api/health")
@@ -221,7 +211,7 @@ def delete_job_data(job_id: str):
     return {"message": "Job deleted"}
 
 
-# ---------------------------------------------------------------------- ablation schema
+# ablation schema
 
 
 class AblationConfig(BaseModel):
@@ -233,7 +223,7 @@ class AblationConfig(BaseModel):
     parent_job_id: str = Field(..., description="Job ID whose config to inherit")
 
 
-# ---------------------------------------------------------------------- ablation routes
+# ablation routes
 
 
 def _effective_mode(mode: str, disable_bo: bool) -> str:
@@ -245,19 +235,11 @@ def _effective_mode(mode: str, disable_bo: bool) -> str:
 
 @app.get("/api/ablations")
 def get_ablations(
-    parent_job_id: str | None = Query(default=None, description="Filter to a single parent job"),
+    parent_job_id: str | None = Query(
+        default=None, description="Filter to a single parent job"
+    ),
 ):
-    """
-    Return metrics from all completed ablation studies.
-
-    Reads the ``ablations`` nested object from job documents in MongoDB.
-    When ``parent_job_id`` is provided, only that single document is queried
-    (index lookup) instead of scanning every job.
-
-    Each entry in the returned dict is keyed by
-    ``{effective_mode}_{parent_job_id}`` so the frontend can look up
-    ablation results scoped to a specific parent run.
-    """
+    """Return all completed ablation results, optionally filtered to a single parent job."""
     db = get_db()
     result: dict = {}
 
@@ -288,19 +270,10 @@ def get_ablations(
 
 @app.post("/api/ablations", status_code=202)
 def start_ablation(config: AblationConfig):
-    """
-    Submit an ablation study to the ProcessPoolExecutor.
+    """Submit an ablation study; inherits config from the parent job.
 
-    The ablation inherits its full configuration (dataset, samples, population
-    size, etc.) from the parent job's config stored in MongoDB.
-
-    Idempotent: if a completed result already exists, returns 200 instead of
-    re-submitting.  If the same ablation is already in-flight, returns 202
-    with status "already_queued".
-
-    Returns immediately (HTTP 202 Accepted).  The worker saves its result to
-    the parent job's ``ablations`` field in MongoDB when finished.  Call
-    GET /api/ablations to check for new results.
+    Idempotent: returns 200 if a result already exists, or 202 with
+    status "already_queued" if the same ablation is in-flight.
     """
     from api.worker import run_ablation
 
@@ -316,7 +289,6 @@ def start_ablation(config: AblationConfig):
     eff_mode = _effective_mode(config.mode, config.disable_bo)
     running_key = f"{eff_mode}_{config.parent_job_id}"
 
-    # Check for an existing ablation result in MongoDB.
     existing = parent_doc.get("ablations", {}).get(eff_mode)
     if existing and existing.get("status", "completed") != "failed":
         return JSONResponse(
@@ -329,7 +301,6 @@ def start_ablation(config: AblationConfig):
             },
         )
 
-    # Reject if this exact ablation is already in-flight.
     if running_key in _running_ablations:
         return {
             "status": "already_queued",
@@ -347,8 +318,10 @@ def start_ablation(config: AblationConfig):
         exc = fut.exception()
         if exc:
             import logging
+
             logging.getLogger("server").error(
-                f"Ablation {running_key} crashed: {exc}", exc_info=exc,
+                f"Ablation {running_key} crashed: {exc}",
+                exc_info=exc,
             )
 
     future = _executor.submit(
@@ -378,41 +351,19 @@ def start_ablation(config: AblationConfig):
 
 @app.get("/api/jobs/{job_id}/stream")
 async def stream_job(job_id: str, request: Request):
-    """
-    Server-Sent Events stream for real-time job progress.
+    """SSE stream that pushes status + last 100 log lines whenever either changes.
 
-    Each event is a JSON payload containing the full status snapshot and the
-    latest 100 log lines:
-
-        data: {"status": {...}, "logs": ["line1", ...]}\n\n
-
-    The stream:
-      - Only emits an event when either the status or the logs have changed,
-        so the React client can safely update state on every message without
-        comparing old vs new itself.
-      - Closes automatically once the job reaches a terminal state
-        (completed / failed / terminated).
-      - Closes immediately if the client disconnects, preventing orphaned
-        server-side generators from accumulating.
-
-    Connect from JavaScript with:
-        const es = new EventSource('/api/jobs/<id>/stream');
-        es.onmessage = (e) => {
-            const { status, logs } = JSON.parse(e.data);
-        };
+    Closes automatically on terminal state or client disconnect.
     """
 
     async def event_generator():
         last_payload_json: str | None = None
 
         while True:
-            # Client-disconnect check comes first — no point querying if
-            # nobody is listening on the other end.
             if await request.is_disconnected():
                 break
 
-            # pymongo is synchronous; run it in the default thread-pool so we
-            # never block the asyncio event loop.
+            # pymongo is synchronous; offload to thread pool to avoid blocking the event loop.
             status = await asyncio.to_thread(_job_manager.get_status, job_id)
 
             if status is None:
@@ -423,14 +374,12 @@ async def stream_job(job_id: str, request: Request):
 
             payload_json = json.dumps({"status": status, "logs": logs})
 
-            # Only push when something has actually changed to avoid sending
-            # identical frames every second during quiet periods.
+            # Only emit when the payload has changed to avoid redundant frames.
             if payload_json != last_payload_json:
                 last_payload_json = payload_json
                 yield f"data: {payload_json}\n\n"
 
-            # Close the stream *after* yielding the final state so the client
-            # always receives the terminal event before the connection drops.
+            # Yield terminal state before closing so the client receives the final snapshot.
             if status.get("status") in _TERMINAL_STATES:
                 break
 
@@ -442,17 +391,12 @@ async def stream_job(job_id: str, request: Request):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            # Tells nginx / proxies not to buffer the response — critical for
-            # SSE to work correctly behind a reverse proxy.
-            "X-Accel-Buffering": "no",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering for SSE.
         },
     )
 
 
-# ---------------------------------------------------------------------- static files
-# Mount the React SPA as a catch-all AFTER all /api/* routes so API requests
-# are never swallowed.  Only active in production (when static/ exists); in
-# development, Vite's dev server handles the frontend.
+# Mount the React SPA catch-all after all /api/* routes; only active when static/ exists.
 _static_dir = Path(_BACKEND_ROOT) / "static"
 if _static_dir.is_dir():
     from fastapi.staticfiles import StaticFiles
