@@ -17,6 +17,7 @@ wheels/
 .env
 
 thesis/
+CLAUDE.md
 
 data
 tests/

@@ -2,19 +2,16 @@ import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   BarChart3,
-  Clock,
-  Eye,
   FlaskConical,
+  HelpCircle,
   Loader2,
   Rocket,
-  Target,
 } from "lucide-react";
 import { useDeleteJob, useJobs } from "../hooks/useApi";
 import { useStore } from "../store";
 import JobSelectorTable from "../components/JobSelectorTable";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
-import HowItWorksModal from "../components/HowItWorksModal";
 import { OBJECTIVES } from "@/constants.js";
 
 const Home = () => {
@@ -70,7 +67,10 @@ const Home = () => {
             <Rocket size={16} />
             Start Optimization
           </Button>
-          <HowItWorksModal />
+          <Button variant="outline" size="lg" className="font-medium" onClick={() => navigate("/how-it-works")}>
+            <HelpCircle size={16} />
+            How it works
+          </Button>
         </div>
       </div>
 

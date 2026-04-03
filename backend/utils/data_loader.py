@@ -1,9 +1,10 @@
 import os
 import pickle
 from pathlib import Path
-from typing import Tuple, List
+from typing import List, Tuple
+
 import numpy as np
-from datasets import load_datasetØ
+from datasets import load_dataset
 from sklearn.datasets import fetch_20newsgroups
 
 
