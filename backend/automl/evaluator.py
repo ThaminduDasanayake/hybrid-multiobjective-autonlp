@@ -1,3 +1,16 @@
+"""
+THE JUDGE — evaluator.py
+=========================
+This module sits between the Genetic Algorithm and the Bayesian Optimizer.
+When the GA produces a new pipeline blueprint (chromosome), it hands it to the Judge.
+The Judge first checks if this exact pipeline has been evaluated before (cache hit).
+If not, it enforces compatibility rules, calls the Tuner (BO) to find the best
+hyperparameters, and then computes a three-objective fitness score:
+  (F1 score ↑, inference latency ↓, interpretability ↑)
+
+This fitness tuple is what DEAP uses to rank individuals with NSGA-II.
+"""
+
 import time
 from typing import Dict, Tuple
 
@@ -11,9 +24,15 @@ from .persistence import ResultStore
 
 logger = get_logger("evaluator")
 
-# Sentinel fitness values for invalid/error individuals.
-# Directionally correct for DEAP weights (1.0, -1.0, 1.0):
-#   F1=0 (worst), latency=huge (worst), interpretability=0 (worst)
+# Sentinel fitness values returned for pipelines that cannot be evaluated.
+# The values are directionally "worst possible" for DEAP's weight vector (1.0, -1.0, 1.0):
+#   F1=0 (worst), latency=huge (worst), interpretability=0 (worst).
+# Two distinct sentinels are used:
+#   PENALTY_FITNESS — for structurally invalid pipelines (e.g., NaiveBayes after
+#                     a scaler that produces negative values). These are deterministic
+#                     and are cached so the GA never wastes time re-evaluating them.
+#   ERROR_FITNESS   — for transient runtime failures (unexpected exceptions). These
+#                     are NOT cached, allowing the GA to retry the individual later.
 PENALTY_FITNESS = (0.0, 1e6, 0.0)
 ERROR_FITNESS = (0.0, 1e7, 0.0)
 
@@ -53,12 +72,17 @@ class PipelineEvaluator:
         """
         cache_key = self.result_store.get_individual_key(individual)
 
-        # Check cache — only reuse valid or deterministic (penalty) results
+        # Cache gate: if this exact architecture has been evaluated before (including
+        # deterministic penalty results), return the stored score immediately.
+        # Error results (transient failures) are the only exception — they are not
+        # reused so the GA gets a chance to retry a pipeline that may have failed
+        # due to a temporary resource issue.
         cached = self.result_store.get_cached_evaluation(cache_key)
         if cached and cached.get("status") != "error":
             return cached["f1_score"], cached["latency"], cached["interpretability"]
 
-        # Unpack 6 genes
+        # Unpack the 6-gene chromosome:
+        # [scaler, dim_reduction, vectorizer, model, ngram_range, max_features]
         scaler_type = individual[0]
         dim_reduction_type = individual[1]
         vectorizer_type = individual[2]
@@ -66,7 +90,11 @@ class PipelineEvaluator:
         ngram_range = individual[4]
         max_features = individual[5]
 
-        # Safe-Pairing Logic
+        # Compatibility check before spending any compute on BO.
+        # Some gene combinations are mathematically illegal (e.g., MultinomialNB
+        # requires non-negative inputs, so it cannot follow scalers or dim reduction
+        # methods that produce negative values). Invalid combos receive PENALTY_FITNESS
+        # and are cached so this check only runs once per unique architecture.
         if not self._validate_structure(scaler_type, dim_reduction_type, model_type):
             logger.warning(f"Invalid structure: {individual}. applying penalty.")
             self.result_store.cache_evaluation(
@@ -124,7 +152,13 @@ class PipelineEvaluator:
             # Update observed objective ranges (for reporting only)
             self._update_objective_ranges(f1_score, latency, interpretability)
 
-            # Store result
+            # Results go to two separate stores with different purposes:
+            # - eval_cache (via cache_evaluation): the deduplication store. Keyed by
+            #   MD5 of the architecture. Only one entry per unique pipeline ever exists
+            #   here. hybrid_automl.py reads this to build the final result payload.
+            # - search_history (via add_to_history): the chronological log. Records
+            #   every *new* successful evaluation in order, with generation and timestamp,
+            #   so the convergence chart can show how the Pareto front evolved over time.
             result = {
                 "status": "success",
                 "scaler": scaler_type,
@@ -172,22 +206,29 @@ class PipelineEvaluator:
         self, f1: float, latency: float, interpretability: float
     ):
         """Track observed min/max for each objective (for reporting only)."""
-        for obj_name, value in [
+        for obj_name, value in (
             ("f1_score", f1),
             ("latency", latency),
             ("interpretability", interpretability),
-        ]:
+        ):
             if value < self.objective_ranges[obj_name]["min"]:
                 self.objective_ranges[obj_name]["min"] = value
             if value > self.objective_ranges[obj_name]["max"]:
                 self.objective_ranges[obj_name]["max"] = value
 
-    def _validate_structure(self, scaler: str, dim_reduction: str, model: str) -> bool:
+    @staticmethod
+    def _validate_structure(scaler: str, dim_reduction: str, model: str) -> bool:
         """Return False if the pipeline violates component compatibility constraints.
 
-        MultinomialNB requires non-negative input, so it is incompatible with
-        scalers that can produce negative values (standard, robust) and with
-        TruncatedSVD (pca), which also produces negatives.
+        MultinomialNB (Naive Bayes) works by computing word count probabilities.
+        It mathematically requires all input values to be non-negative (you cannot
+        have a negative word count). Two pipeline steps can violate this:
+          - StandardScaler / RobustScaler: centre the data around zero, producing
+            negative values for below-average features.
+          - TruncatedSVD (our "pca" mode): decomposes the feature matrix into
+            latent dimensions, which can also produce negative projections.
+        Any pipeline that pairs NaiveBayes with these components is flagged as
+        invalid before BO even runs, saving the evaluation budget.
         """
         if model == "naive_bayes":
             if scaler in ("standard", "robust"):

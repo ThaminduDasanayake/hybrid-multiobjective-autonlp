@@ -1,3 +1,16 @@
+"""
+THE ARCHITECT — search_engine.py
+==================================
+This module runs the Genetic Algorithm (GA) that searches for the best NLP pipeline
+architectures. Think of it as an architect who sketches many different building designs
+(pipeline blueprints), selects the best ones each round, combines their strongest
+features, and iterates until the designs stop improving.
+
+The algorithm used is NSGA-II (Non-dominated Sorting Genetic Algorithm II), a
+well-established multi-objective evolutionary algorithm. Instead of optimising for a
+single score, NSGA-II maintains a diverse set of trade-off solutions — the Pareto front.
+"""
+
 import random
 import time
 from typing import Callable, List, Optional
@@ -13,24 +26,31 @@ from .persistence import ResultStore
 
 logger = get_logger("search_engine")
 
-# Supported optimization modes for ablation studies.
-# Each maps to a DEAP fitness-weight tuple: (F1, Latency, Interpretability).
-# Epsilon (1e-10) rather than 0.0 avoids ZeroDivisionError inside DEAP for ignored objectives.
+# Each optimization mode maps to a DEAP fitness-weight tuple: (F1, Latency, Interpretability).
+# A positive weight means "maximise this objective"; a negative weight means "minimise".
+# The ablation modes intentionally suppress one or two objectives (using a near-zero
+# epsilon instead of 0.0) to avoid ZeroDivisionError inside DEAP's internal normalization.
 OPTIMIZATION_MODES = {
-    "multi_3d": (1.0, -1.0, 1.0),  # Default: 3-objective
-    "single_f1": (1.0, -1e-10, -1e-10),  # Ablation: F1 only
-    "multi_2d": (1.0, -1.0, -1e-10),  # Ablation: F1 + Latency
+    "multi_3d": (1.0, -1.0, 1.0),       # Default: all three objectives active
+    "single_f1": (1.0, -1e-10, -1e-10), # Ablation: F1 only (latency and interpretability suppressed)
+    "multi_2d": (1.0, -1.0, -1e-10),    # Ablation: F1 + Latency only
     "random_search": (
         1.0,
         -1.0,
         1.0,
-    ),  # Baseline: same weights as multi_3d, no GA operators
+    ),  # Baseline: same weights as multi_3d, but GA operators are bypassed entirely
 }
 
 
 class EvolutionarySearch:
     """
-    Handles the Evolutionary Algorithm (NSGA-II) logic.
+    Runs the NSGA-II evolutionary loop over the NLP pipeline search space.
+
+    Each "individual" in the population is a 6-gene chromosome representing a
+    complete pipeline architecture: [scaler, dim_reduction, vectorizer, model,
+    ngram_range, max_features]. The GA evolves these chromosomes over multiple
+    generations, guided by the (F1, latency, interpretability) fitness scores
+    returned by the Judge (PipelineEvaluator).
     """
 
     def __init__(
@@ -41,6 +61,9 @@ class EvolutionarySearch:
         result_store: ResultStore,
         evaluate_fn: Callable[[list], tuple],
         optimization_mode: str = "multi_3d",
+        crossover_prob: float = 0.7,
+        mutation_prob: float = 0.5,
+        stagnation_threshold: int = 3,
     ):
 
         self.population_size = population_size
@@ -48,6 +71,8 @@ class EvolutionarySearch:
         self.random_state = random_state
         self.result_store = result_store
         self.evaluate_fn = evaluate_fn
+        self.crossover_prob = crossover_prob
+        self.mutation_prob = mutation_prob
 
         if optimization_mode not in OPTIMIZATION_MODES:
             raise ValueError(
@@ -57,10 +82,20 @@ class EvolutionarySearch:
         self.optimization_mode = optimization_mode
         self._weights = OPTIMIZATION_MODES[optimization_mode]
 
-        self.stagnation_threshold = 3
+        self.stagnation_threshold = stagnation_threshold
         self.stagnation_counter = 0
         self.last_pareto_hash = None
 
+        # The gene pool defines the discrete search space for each of the 6 genes.
+        # Mutation and initialisation both draw from these lists.
+        # - scaler: how to normalise feature values before the model sees them
+        # - dim_reduction: optional feature selection / compression step
+        # - vectorizer: how raw text is converted into numbers (bag-of-words)
+        # - model: the classifier that makes the final prediction
+        # - ngram_range: whether to use single words (1-1) or word pairs (1-2)
+        # - max_features: vocabulary size cap (None = unlimited)
+        # Models are restricted to linear/interpretable types; ensemble models like
+        # Random Forest are excluded because they conflict with the interpretability objective.
         self.gene_pool = {
             "scaler": [None, "maxabs", "robust"],
             "dim_reduction": [None, "select_k_best"],
@@ -83,7 +118,7 @@ class EvolutionarySearch:
     def _random_gene(self, gene_name: str):
         """
         Sample a random value from the gene pool with proper type safety.
-        Centralised to avoid duplicated logic across mutation and initialisation.
+        Centralised to avoid duplicated logic across mutation and initialization.
         """
         val = np.random.choice(self.gene_pool[gene_name])
         if gene_name == "max_features":
@@ -93,19 +128,33 @@ class EvolutionarySearch:
         return str(val)
 
     def _setup_deap(self):
-        # Reset DEAP globals to ensure fitness weights match the current optimization mode
-        if hasattr(creator, "Individual"):
-            del creator.Individual
-        if hasattr(creator, "FitnessMulti"):
-            del creator.FitnessMulti
+        # DEAP stores fitness and individual class definitions in a global registry
+        # (creator module). This is normally fine for a single run, but when ablation
+        # studies run multiple EvolutionarySearch instances with *different* fitness
+        # weights in the same process, they would clobber each other's classes.
+        # The fix: derive a unique class name from a hash of the weight tuple so that
+        # each distinct (F1_w, Lat_w, Interp_w) combination gets its own stable class.
+        # creator.create() is only called once per unique weight set per process.
+        weight_tag = abs(hash(self._weights))
+        self._fitness_cls_name = f"FitnessMulti_{weight_tag}"
+        self._individual_cls_name = f"Individual_{weight_tag}"
 
-        creator.create("FitnessMulti", base.Fitness, weights=self._weights)
-        creator.create("Individual", list, fitness=creator.FitnessMulti)
+        if not hasattr(creator, self._fitness_cls_name):
+            creator.create(self._fitness_cls_name, base.Fitness, weights=self._weights)
+        if not hasattr(creator, self._individual_cls_name):
+            creator.create(
+                self._individual_cls_name,
+                list,
+                fitness=getattr(creator, self._fitness_cls_name),
+            )
 
         logger.info(
             f"DEAP configured for mode '{self.optimization_mode}' "
-            f"with weights {self._weights}"
+            f"with weights {self._weights} "
+            f"(classes: {self._fitness_cls_name}, {self._individual_cls_name})"
         )
+
+        individual_cls = getattr(creator, self._individual_cls_name)
 
         self.toolbox = base.Toolbox()
 
@@ -129,7 +178,7 @@ class EvolutionarySearch:
         self.toolbox.register(
             "individual",
             tools.initCycle,
-            creator.Individual,
+            individual_cls,
             (
                 self.toolbox.attr_scaler,
                 self.toolbox.attr_dim_reduction,
@@ -144,7 +193,10 @@ class EvolutionarySearch:
             "population", tools.initRepeat, list, self.toolbox.individual
         )
 
-        # Uniform crossover is appropriate because categorical genes have no meaningful ordering.
+        # Uniform crossover randomly swaps each gene between two parents with 50%
+        # probability. This is preferred over single-point crossover here because
+        # the genes are categorical (no natural ordering), so there is no notion
+        # of a "left half" vs "right half" being more meaningful than random mixing.
         self.toolbox.register("mate", tools.cxUniform, indpb=0.5)
         self.toolbox.register("mutate", self._mutate_individual, indpb=0.5)
         self.toolbox.register("select", tools.selNSGA2)
@@ -173,11 +225,8 @@ class EvolutionarySearch:
         if new_individuals_ratio < 0.2:
             return False
 
-        # Create hash of Pareto front solutions
-        pareto_configs = set()
-        for ind in pareto_front:
-            key = self.result_store.get_individual_key(ind)
-            pareto_configs.add(key)
+        # Build the set of MD5 keys for all current Pareto-front individuals.
+        pareto_configs = {self.result_store.get_individual_key(ind) for ind in pareto_front}
         current_hash = hash(frozenset(pareto_configs))
 
         if current_hash == self.last_pareto_hash:
@@ -196,7 +245,12 @@ class EvolutionarySearch:
     def run(self, callback: Optional[Callable] = None):
         population = self.toolbox.population(n=self.population_size)
 
-        # Random search bypass: flat evaluation, no evolutionary operators
+        # --- RANDOM SEARCH BASELINE (ablation bypass) ---
+        # In random_search mode we skip all GA operators (selection, crossover, mutation).
+        # Instead, we sample a flat pool of (population_size × n_generations) completely
+        # random individuals and evaluate each one exactly once. This serves as the
+        # "dumbest possible" baseline in the ablation study: can the GA do better than
+        # pure random sampling? The same total evaluation budget is used for a fair comparison.
         if self.optimization_mode == "random_search":
             total_budget = self.population_size * self.n_generations
             population = self.toolbox.population(n=total_budget)
@@ -239,8 +293,12 @@ class EvolutionarySearch:
             logger.info(f"Random search completed ({total_budget} evaluations)")
             return
 
-        # HOF is used for early stopping only — final Pareto front is
-        # recomputed from all evaluated solutions in hybrid_automl.py.
+        # --- MAIN NSGA-II EVOLUTIONARY LOOP ---
+        # The Hall of Fame (HOF) tracks the running Pareto front across generations.
+        # It is only used here for early-stopping detection — checking whether the
+        # Pareto front has stopped changing. The *final* authoritative Pareto front
+        # is recomputed from scratch in hybrid_automl.py after the search finishes,
+        # using the complete deduplicated eval_cache rather than DEAP's internal HOF.
         hof = tools.ParetoFront()
 
         for gen in range(self.n_generations):
@@ -257,11 +315,20 @@ class EvolutionarySearch:
                     }
                 )
 
-            # Identify invalid individuals (those that need evaluation)
+            # DEAP marks an individual's fitness as "invalid" whenever its genes have
+            # been modified (by crossover or mutation) since the last evaluation.
+            # Individuals carried over unchanged from the previous generation retain
+            # their valid fitness scores and are skipped — this is DEAP's built-in
+            # mechanism for avoiding redundant evaluations within a single run.
             invalid_ind = [ind for ind in population if not ind.fitness.valid]
 
-            # Count how many are truly new (not in the persistent cache).
-            # Uses peek() to avoid inflating the hit/miss counters.
+            # Count how many of the invalid individuals are also absent from the
+            # persistent Memory cache (i.e., genuinely new architectures never seen
+            # before). This ratio is used by the early-stopping check to distinguish
+            # "the Pareto front is stable because the population has converged"
+            # from "it's stable because every individual was a cache hit this round".
+            # We use peek() here instead of get_cached_evaluation() to avoid
+            # inflating the cache hit/miss counters with this internal bookkeeping probe.
             new_individuals_count = sum(
                 1
                 for ind in invalid_ind
@@ -273,7 +340,9 @@ class EvolutionarySearch:
             logger.info(f"New individuals ratio: {new_individuals_ratio:.2f}")
 
             # Evaluate invalid individuals
-            evaluate_with_gen = lambda ind: self.toolbox.evaluate(ind, generation=gen)
+            def evaluate_with_gen(ind):
+                return self.toolbox.evaluate(ind, generation=gen)
+
             fitnesses = map(evaluate_with_gen, invalid_ind)
 
             # Track failure reasons for logging
@@ -302,18 +371,22 @@ class EvolutionarySearch:
                 logger.info(f"Stopped at generation {gen + 1}")
                 break
 
-            # Selection & Offspring
+            # --- NSGA-II GENERATION CYCLE: select → clone → crossover → mutate → replace ---
+            # selNSGA2 selects the next generation's parents by non-dominated rank and
+            # crowding distance (the core of the NSGA-II algorithm). This keeps the
+            # population diverse — not just the highest F1 solutions survive, but also
+            # those with unique trade-off positions on the Pareto front.
             offspring = self.toolbox.select(population, len(population))
             offspring = list(map(self.toolbox.clone, offspring))
 
             for child1, child2 in zip(offspring[::2], offspring[1::2]):
-                if np.random.random() < 0.7:
+                if np.random.random() < self.crossover_prob:
                     self.toolbox.mate(child1, child2)
                     del child1.fitness.values
                     del child2.fitness.values
 
             for mutant in offspring:
-                if np.random.random() < 0.5:
+                if np.random.random() < self.mutation_prob:
                     self.toolbox.mutate(mutant)
                     del mutant.fitness.values
 

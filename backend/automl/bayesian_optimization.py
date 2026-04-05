@@ -1,3 +1,20 @@
+"""
+THE TUNER — bayesian_optimization.py
+======================================
+Once the Genetic Algorithm (the Architect) has decided *what kind* of pipeline to build
+(e.g., "TF-IDF + no scaler + Logistic Regression"), this module finds the *best settings*
+for that pipeline — its hyperparameters.
+
+It uses Bayesian Optimization (BO) with a Gaussian Process (GP) surrogate model.
+Think of it like a smart knob-turner: instead of randomly trying every combination,
+it builds a probability model of the performance landscape and focuses its attempts
+on regions that are likely to be better, based on what it has already tried.
+
+The key trade-off: the first 10 calls are purely exploratory (random sampling to
+initialize the GP). After that, the GP guides the remaining calls toward promising
+regions. This is why n_calls must be meaningfully above 10 to get the benefit of BO.
+"""
+
 import time
 from typing import Dict, Any, Optional
 
@@ -11,6 +28,15 @@ from utils.logger import get_logger
 from .pipeline_builder import build_pipeline
 
 logger = get_logger("bayesian_optimization")
+
+# Maps dataset size profile to per-solver max_iter caps.
+# Defined at module level so _get_search_space() (called per BO evaluation)
+# does a single O(1) dict lookup instead of an if/elif branch.
+_MAX_ITER: dict = {
+    "small":  {"logistic": 1000, "svm": 1500},
+    "medium": {"logistic": 2000, "svm": 3000},
+    "large":  {"logistic": 3000, "svm": 5000},
+}
 
 
 
@@ -119,37 +145,48 @@ class BayesianOptimizer:
                     random_state=self.random_state,
                 )
 
-                # return_estimator=True reuses the last fold's fitted model for latency measurement.
+                # Cross-validate the pipeline with the current hyperparameter config.
+                # return_estimator=True keeps the fitted model from the last fold so we
+                # can measure real inference latency on it below.
+                # n_jobs=1: this objective runs inside a ProcessPoolExecutor worker; spawning
+                # additional loky subprocesses from within a spawned process causes nested
+                # parallelism that silently degrades to sequential on macOS (spawn start method)
+                # and can deadlock on some sklearn/joblib versions.
                 cv_result = cross_validate(
                     pipeline,
                     X_train,
                     y_train,
                     cv=self.cv,
                     scoring="f1_weighted",
-                    n_jobs=-1,
+                    n_jobs=1,
                     error_score=0.0,
                     return_estimator=True,
                 )
                 score = cv_result["test_score"].mean()
                 scores.append(score)
 
-                fitted = cv_result["estimator"][-1]
-                n_test = min(100, len(X_train))
-                inference_start = time.time()
-                _ = fitted.predict(X_train[:n_test])
-                inference_time = (time.time() - inference_start) / n_test
+                inference_time = self._measure_inference_time(cv_result, X_train)
                 inference_times.append(inference_time)
 
-                # BO minimizes, so negate F1.
+                # gp_minimize *minimizes* its objective, but we want to *maximize* F1.
+                # Negating F1 converts our maximization problem into a minimization one.
+                # A failed pipeline (NaN) is treated as F1=0 (worst possible score).
                 if np.isnan(score):
                     return 0.0
 
                 return -score
 
-            except Exception:
-                return 0.0  # Return poor score on failure
+            except Exception as e:
+                logger.warning(
+                    f"BO objective failed for [{vectorizer_type}/{model_type}]: "
+                    f"{type(e).__name__}: {e}"
+                )
+                return 0.0  # Treat failed pipeline as worst score (F1=0) for the minimizer
 
-        # Run Bayesian Optimization
+        # Run the Bayesian Optimization loop. The first n_initial_points calls are
+        # random (to build an initial picture of the landscape). After that, the
+        # Gaussian Process model guides subsequent calls toward promising regions.
+        # n_jobs=1: sequential evaluation within the loop; see objective() comment above.
         result = gp_minimize(
             objective,
             space,
@@ -160,14 +197,17 @@ class BayesianOptimizer:
             verbose=False,
         )
 
-        # Extract best parameters
+        # result.x contains the best hyperparameter *values* found; result.fun is
+        # the best (negated) F1 score seen. We map values back to named parameters
+        # and un-negate to recover the true F1 score.
         best_params = {}
         for param_name, param_value in zip([s.name for s in space], result.x):
             best_params[param_name] = param_value
 
         best_score = -result.fun  # un-negate to recover F1
 
-        # Compute variance from cross-validation
+        # Variance across all BO objective evaluations — a proxy for how sensitive
+        # this pipeline's performance is to hyperparameter choices.
         variance = np.var(scores) if len(scores) > 0 else 0.0
 
         # Average inference time
@@ -200,7 +240,13 @@ class BayesianOptimizer:
         y_train,
         optimization_start,
     ) -> Dict[str, Any]:
-        """Sample one random hyperparameter set and evaluate it; used for the GA-only ablation."""
+        """Sample one random hyperparameter set and evaluate it; used for the GA-only ablation.
+
+        When disable_bo=True, this replaces the full BO loop. Instead of 15+ guided
+        calls, we draw a single random hyperparameter configuration and evaluate it once.
+        This lets the ablation study answer: "how much does BO tuning actually help
+        over just picking random hyperparameters and running the GA alone?"
+        """
         random_params = {}
         for dim in space:
             sample = dim.rvs(n_samples=1, random_state=self._rng)
@@ -217,7 +263,6 @@ class BayesianOptimizer:
             random_params[dim.name] = val
 
         profile = self.dataset_profile(X_train)
-        score = 0.0
         inference_time = 0.001
         variance = 0.0
 
@@ -239,7 +284,7 @@ class BayesianOptimizer:
                 y_train,
                 cv=self.cv,
                 scoring="f1_weighted",
-                n_jobs=-1,
+                n_jobs=1,  # must be 1 inside a worker process — see objective() comment above
                 error_score=0.0,
                 return_estimator=True,
             )
@@ -249,11 +294,7 @@ class BayesianOptimizer:
             if np.isnan(score):
                 score = 0.0
 
-            fitted = cv_result["estimator"][-1]
-            n_test = min(100, len(X_train))
-            inf_start = time.time()
-            _ = fitted.predict(X_train[:n_test])
-            inference_time = (time.time() - inf_start) / n_test
+            inference_time = self._measure_inference_time(cv_result, X_train)
 
         except Exception as e:
             logger.warning(
@@ -273,6 +314,16 @@ class BayesianOptimizer:
         }
 
     @staticmethod
+    def _measure_inference_time(cv_result, X_train) -> float:
+        """Measure per-sample inference latency using the last CV fold's fitted estimator."""
+        fitted = cv_result["estimator"][-1]
+        n_test = min(100, len(X_train))
+        fitted.predict(X_train[:n_test])  # warmup: absorbs sklearn validation + first-call overhead
+        start = time.perf_counter()
+        fitted.predict(X_train[:n_test])
+        return (time.perf_counter() - start) / n_test
+
+    @staticmethod
     def _get_search_space(
         dim_reduction_type: str,
         vectorizer_type: str,
@@ -281,19 +332,22 @@ class BayesianOptimizer:
         max_features_val: Any,
         n_samples: int,
     ) -> list:
-        """Build the skopt search space for the given pipeline configuration and dataset profile."""
+        """Build the skopt search space for the given pipeline configuration and dataset profile.
+
+        The search space is *conditional*: only axes relevant to the current pipeline
+        are included. For example, a pipeline with no dim_reduction step has no
+        pca_n_components axis; a NaiveBayes pipeline has no C or max_iter axis.
+        This keeps the BO search space tight and makes each call meaningful.
+        """
         space = []
 
-        # Scale max_iter to dataset size to avoid wasting BO budget on non-converging configs.
-        if profile == "small":
-            max_iter_logistic = 1000
-            max_iter_svm = 1500
-        elif profile == "medium":
-            max_iter_logistic = 2000
-            max_iter_svm = 3000
-        else:  # large
-            max_iter_logistic = 3000
-            max_iter_svm = 5000
+        # max_iter (how long solvers run before giving up) is scaled to dataset size.
+        # A small dataset converges quickly; a large dataset needs more iterations.
+        # Capping max_iter prevents the BO budget being wasted on configs that simply
+        # haven't converged yet rather than genuinely underperforming.
+        _iters = _MAX_ITER[profile]
+        max_iter_logistic = _iters["logistic"]
+        max_iter_svm = _iters["svm"]
 
         if dim_reduction_type == "pca":
             # n_components must be < n_samples; TruncatedSVD is used for sparse text data.

@@ -9,20 +9,20 @@ Examples:
 
 import argparse
 import json
-import os
 import sys
 import time
 from pathlib import Path
+
+from automl import HybridAutoML
+from automl.search_engine import OPTIMIZATION_MODES
+from utils import DataLoader, to_python_type
+from utils.evaluation import ParetoAnalyzer
+from utils.logger import get_logger
 
 # Ensure project root is on sys.path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
-from automl import HybridAutoML
-from automl.search_engine import OPTIMIZATION_MODES
-from utils.evaluation import ParetoAnalyzer
-from utils import DataLoader, to_python_type
-from utils.logger import get_logger
 
 logger = get_logger("ablation_runner")
 
@@ -98,7 +98,7 @@ def main() -> None:
     args = parse_args()
 
     weights = OPTIMIZATION_MODES[args.mode]
-    logger.info(f"=== Ablation Study ===")
+    logger.info("=== Ablation Study ===")
     logger.info(f"Mode          : {args.mode}")
     logger.info(f"Weights       : {weights}")
     logger.info(f"Dataset       : {args.dataset}")
@@ -132,7 +132,7 @@ def main() -> None:
     elapsed = time.time() - start
 
     analyzer = ParetoAnalyzer()
-    metrics = analyzer.compute_metrics(results.get("all_solutions", []))
+    metrics = analyzer.compute_metrics(results.get("pipelines", []))
     if not metrics:
         logger.warning("No valid solutions were produced; writing empty metrics.")
         metrics = {
@@ -185,7 +185,11 @@ def main() -> None:
     if args.job_id:
         from api.db import get_db
 
-        eff_mode = "random_search" if args.mode == "random_search" else ("ga_only" if args.disable_bo else args.mode)
+        eff_mode = (
+            "random_search"
+            if args.mode == "random_search"
+            else ("ga_only" if args.disable_bo else args.mode)
+        )
         payload["status"] = "completed"
         payload["parent_job_id"] = args.job_id
         payload["disable_bo"] = args.disable_bo

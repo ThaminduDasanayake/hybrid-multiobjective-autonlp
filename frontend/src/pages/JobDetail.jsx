@@ -20,32 +20,32 @@ import {
   useRunAblation,
 } from "../hooks/useApi";
 import { useStore } from "../store";
-import DecisionSupport from "../components/history-analysis/DecisionSupport.jsx";
+import DecisionSupport from "../components/job-details/DecisionSupport.jsx";
 import JobConfigCard from "../components/JobConfigCard";
-import SolutionsTable from "../components/history-analysis/SolutionsTable.jsx";
-import MetricCard from "@/components/history-analysis/MetricCard.jsx";
-import ComparisonTable from "@/components/experiments/ComparisonTable.jsx";
-import RunButton from "@/components/experiments/RunButton.jsx";
+import SolutionsTable from "../components/job-details/SolutionsTable.jsx";
+import MetricCard from "@/components/job-details/MetricCard.jsx";
+import ComparisonTable from "@/components/job-details/ComparisonTable.jsx";
+import RunButton from "@/components/job-details/RunButton.jsx";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
 import { fmt } from "../utils/formatters";
 
 // Lazy-load Plotly chart components so plotly.js (~3 MB) is only fetched when
 // the user navigates to this page — not included in the initial app bundle.
-const ParetoFront3D = lazy(() => import("../components/history-analysis/ParetoFront3D.jsx"));
-const ParetoFront2D = lazy(() => import("../components/history-analysis/ParetoFront2D.jsx"));
-const ConvergenceChart = lazy(() => import("../components/history-analysis/ConvergenceChart.jsx"));
+const ParetoFront3D = lazy(() => import("../components/job-details/ParetoFront3D.jsx"));
+const ParetoFront2D = lazy(() => import("../components/job-details/ParetoFront2D.jsx"));
+const ConvergenceChart = lazy(() => import("../components/job-details/ConvergenceChart.jsx"));
 const HypervolumeConvergenceChart = lazy(
-  () => import("../components/history-analysis/HypervolumeConvergenceChart.jsx"),
+  () => import("../components/job-details/HypervolumeConvergenceChart.jsx"),
 );
-const ParetoHeatmap = lazy(() => import("../components/history-analysis/ParetoHeatmap.jsx"));
+const ParetoHeatmap = lazy(() => import("../components/job-details/ParetoHeatmap.jsx"));
 const PipelineBreakdownChart = lazy(
-  () => import("../components/history-analysis/PipelineBreakdownChart.jsx"),
+  () => import("../components/job-details/PipelineBreakdownChart.jsx"),
 );
 const ModelDistributionChart = lazy(
-  () => import("../components/history-analysis/ModelDistributionChart.jsx"),
+  () => import("../components/job-details/ModelDistributionChart.jsx"),
 );
-const AblationBarChart = lazy(() => import("@/components/experiments/AblationBarChart.jsx"));
+const AblationBarChart = lazy(() => import("@/components/job-details/AblationBarChart.jsx"));
 
 function f4(v) {
   return v != null ? Number(v).toFixed(4) : null;
@@ -74,9 +74,12 @@ const JobDetail = () => {
   const { data: jobData, isLoading: resultLoading, error: resultError } = useJobResult(jobId);
   const { data: hvHistory = [], isLoading: hvLoading } = useHypervolumeHistory(jobId);
   const metrics = jobData?.metrics ?? null;
-  const allSolutions = jobData?.all_solutions ?? [];
-  const paretoFront = jobData?.pareto_front ?? [];
-  const searchHistory = jobData?.search_history ?? [];
+  // Unified pipelines array — derive the three previous arrays from it so all
+  // chart components below continue to receive the same prop names unchanged.
+  const pipelines = jobData?.pipelines ?? [];
+  const allSolutions = pipelines;
+  const paretoFront = pipelines.filter((p) => p.is_pareto_optimal);
+  const searchHistory = pipelines;
   const runtimeSecs = jobData?.runtime_seconds ?? null;
 
   // Ablation state
@@ -145,9 +148,7 @@ const JobDetail = () => {
       config: jobData.config,
       metrics: jobData.metrics,
       runtime_seconds: jobData.runtime_seconds,
-      pareto_front: jobData.pareto_front,
-      all_solutions: jobData.all_solutions,
-      search_history: jobData.search_history,
+      pipelines: jobData.pipelines,
       hypervolume_history: hvHistory,
       ablations: {
         single_objective: ablationsData?.[`single_f1_${jobId}`] ?? null,

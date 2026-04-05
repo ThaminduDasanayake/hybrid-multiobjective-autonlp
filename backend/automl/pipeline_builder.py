@@ -1,4 +1,20 @@
-"""Single source of truth for building sklearn Pipelines from component configurations."""
+"""
+THE ASSEMBLY LINE — pipeline_builder.py
+=========================================
+This module physically constructs sklearn Pipeline objects from the abstract gene
+values that the GA and BO produce. It is the single source of truth for how a
+chromosome like ["maxabs", "select_k_best", "tfidf", "logistic", "1-2", 5000]
+gets translated into a runnable machine learning object.
+
+Every pipeline follows the same four-step assembly order:
+  1. Vectorizer  — convert raw text strings into a numeric feature matrix
+  2. Scaler      — optionally normalise those numbers (not all pipelines have this)
+  3. Dim Reduction — optionally compress or filter the feature space
+  4. Classifier  — make the final class prediction
+
+This fixed order mirrors a standard NLP preprocessing convention and ensures
+that sklearn's Pipeline sequencing is always valid.
+"""
 
 import numpy as np
 from typing import Any, Dict, Optional
@@ -26,14 +42,22 @@ def build_pipeline(
     """Build and return a configured sklearn Pipeline from component names and hyperparameters."""
     steps = []
 
-    # 1. Vectorizer
-    # Sanitize ngram_range: handle numpy strings and ensure tuple of ints
+    # Step 1 — Vectorizer: turn raw text into a sparse numeric matrix.
+    # The GA genes may arrive as numpy string types (np.str_) rather than plain Python
+    # strings depending on how np.random.choice sampled them. Both cases are handled
+    # here defensively to prevent sklearn type errors downstream.
+    #
+    # TF-IDF vs Count: TF-IDF down-weights common words (e.g., "the"), producing a
+    # more nuanced feature representation. CountVectorizer is simpler and more
+    # interpretable — you can directly read "this word appeared N times". The
+    # interpretability scorer reflects this: Count gets a slightly higher score.
     if isinstance(ngram_range, (str, np.str_)):
         min_n, max_n = map(int, str(ngram_range).split("-"))
     else:
         min_n, max_n = map(int, ngram_range)
 
-    # Sanitize max_features: handle numpy string/int and "None" string
+    # "None" arrives as a string from the gene pool ("None" != None in Python).
+    # We explicitly convert it here so sklearn receives a proper None value.
     if str(max_features) == "None":
         max_feat = None
     else:
@@ -57,7 +81,11 @@ def build_pipeline(
         raise ValueError(f"Unknown vectorizer type: {vectorizer_type}")
     steps.append(("vectorizer", vectorizer))
 
-    # 2. Scaler
+    # Step 2 — Scaler (optional): normalise the feature values.
+    # with_mean=False is required for StandardScaler and RobustScaler on sparse
+    # matrices. Centering a sparse matrix (subtracting the mean) makes it dense,
+    # which can exhaust memory on large vocabularies. MaxAbsScaler does not centre
+    # so it is naturally sparse-safe.
     if scaler_type == "standard":
         steps.append(("scaler", StandardScaler(with_mean=False)))
     elif scaler_type == "maxabs":
@@ -65,7 +93,13 @@ def build_pipeline(
     elif scaler_type == "robust":
         steps.append(("scaler", RobustScaler(with_centering=False)))
 
-    # 3. Dimensionality Reduction
+    # Step 3 — Dimensionality Reduction (optional): compress or filter features.
+    # We use TruncatedSVD (labeled "pca" in the gene pool) rather than standard PCA
+    # because standard PCA requires a dense matrix (it computes the full covariance).
+    # TruncatedSVD works directly on sparse TF-IDF/Count matrices, which is essential
+    # for memory efficiency on large vocabularies.
+    # SelectKBest keeps only the K features most correlated with the class labels
+    # (using the F-statistic), which is more interpretable than SVD decomposition.
     if dim_reduction_type == "pca":
         n_components = params.get("pca_n_components", 50)
         steps.append(("dim_reduction", TruncatedSVD(n_components=n_components)))
@@ -73,21 +107,28 @@ def build_pipeline(
         k = int(params.get("k_best_k", 100))
         steps.append(("dim_reduction", SelectKBest(f_classif, k=k)))
 
-    # 4. Classifier
+    # Step 4 — Classifier: make the final prediction.
+    # Three interpretable linear models are available, each with a different trade-off:
+    #   LogisticRegression — highest average F1, well-calibrated probabilities, slowest
+    #   MultinomialNB      — fastest inference, requires non-negative input, simplest
+    #   LinearSVC          — strong on high-dimensional sparse text, no probabilities
     if model_type == "logistic":
         model = LogisticRegression(
             C=params.get("C", 1.0),
             solver="saga",
             penalty="l2",
             max_iter=params.get("max_iter", 1000),
-            n_jobs=-1,
+            n_jobs=1,
             random_state=random_state,
         )
     elif model_type == "naive_bayes":
         model = MultinomialNB(alpha=params.get("alpha", 1.0))
     elif model_type == "svm":
         penalty = params.get("penalty", "l2")
-        # l1 penalty requires dual=False in LinearSVC
+        # LinearSVC's `dual` parameter selects which formulation of the optimisation
+        # problem to solve. The l1 penalty is only implemented in the primal formulation
+        # (dual=False). For l2 we let sklearn choose "auto" when StandardScaler is in
+        # use (dense data), and default to dual=True otherwise (better for sparse text).
         dual = False if penalty == "l1" else ("auto" if scaler_type == "standard" else True)
         model = LinearSVC(
             C=params.get("C", 1.0),

@@ -1,3 +1,21 @@
+"""
+THE RECEPTIONIST — server.py
+==============================
+This is the FastAPI application that handles all communication between the React
+frontend and the backend ML engine. It does two things:
+
+1. REST endpoints: Accept job configuration from the UI, start background AutoML
+   jobs, serve results, and handle ablation study requests.
+
+2. SSE stream: Push live generation-by-generation progress updates to the frontend
+   while a job is running, without the client needing to poll.
+
+The server itself never touches any ML code directly. Heavy computation runs in
+a ProcessPoolExecutor (managed by job_manager.py), keeping the async event loop
+free to handle other requests. The server reads job status from MongoDB and forwards
+it to whoever is listening.
+"""
+
 import asyncio
 import json
 import os
@@ -20,13 +38,20 @@ from pydantic import BaseModel, Field
 from api.db import get_db, get_db_name, get_mongo_uri
 from api.job_manager import JobManager, _executor
 
-# Track in-flight ablation tasks so we can reject duplicate submissions.
-_running_ablations: set[str] = set()
+# Note: duplicate-submission prevention is handled by an atomic MongoDB update_one
+# inside start_ablation(), so no in-process set is needed here.
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Shut down the ProcessPoolExecutor gracefully when the server stops."""
+    """Shut down the ProcessPoolExecutor gracefully when the server stops.
+
+    Two-tier shutdown strategy:
+    - Queued jobs (not yet started): cancelled immediately via cancel_futures=True.
+    - Running jobs (in progress): left to finish naturally. We don't want to abruptly
+      kill an 8-minute AutoML run because the server is restarting — the user's results
+      would be lost. wait=False returns control immediately so uvicorn can exit.
+    """
     yield
     # cancel_futures=True cancels queued (not yet running) futures.
     # Running futures (i.e. active AutoML jobs) are left to finish on their own
@@ -57,7 +82,10 @@ app.add_middleware(
 _job_manager = JobManager()
 
 
-# schemas
+# --- Request/Response Schemas ---
+# JobConfig is the contract between the React config form and the backend.
+# Every field here corresponds to a slider or dropdown in the frontend UI.
+# Pydantic enforces the types and constraints (ge=) before any processing begins.
 
 
 class JobConfig(BaseModel):
@@ -126,13 +154,20 @@ def get_job_result(job_id: str):
 def _compute_hv_history(result: dict) -> list:
     """Compute per-generation hypervolume history (CPU-bound, runs in thread pool).
 
-    Iterates over the job's search_history, building a cumulative solution set
-    per generation, computing the Pareto front and its hypervolume at each step.
-    Global objective bounds (from all solutions) are used so hypervolume values
-    are consistently normalised across generations.
+    This is what feeds the convergence chart in the frontend. For each generation G,
+    we take all pipelines discovered in generations 0..G (cumulative), compute their
+    Pareto front, and calculate the hypervolume of that front.
+
+    Hypervolume is a scalar that measures how much of the objective space the Pareto
+    front "dominates" relative to a worst-case reference point. A rising hypervolume
+    over generations is the mathematical proof that the GA is finding better trade-offs.
+
+    Global objective bounds (min/max across ALL pipelines in the run) are used for
+    normalisation so that hypervolume values are comparable across generations — the
+    denominator doesn't shift as more solutions are discovered.
     """
-    search_history = result.get("search_history", [])
-    if not search_history:
+    pipelines = result.get("pipelines", [])
+    if not pipelines:
         return []
 
     from collections import defaultdict
@@ -142,11 +177,9 @@ def _compute_hv_history(result: dict) -> list:
     from automl.pareto import get_pareto_front
     from utils.evaluation import ParetoAnalyzer
 
-    # Group entries by generation
+    # Group entries by generation (pipelines only contains status==success entries)
     by_gen: dict[int, list[dict]] = defaultdict(list)
-    for entry in search_history:
-        if entry.get("status") != "success":
-            continue
+    for entry in pipelines:
         gen = entry.get("generation")
         if gen is not None:
             by_gen[gen].append(entry)
@@ -154,12 +187,10 @@ def _compute_hv_history(result: dict) -> list:
     if not by_gen:
         return []
 
-    # Compute global bounds across ALL solutions for consistent normalisation
-    all_f1 = [e["f1_score"] for e in search_history if e.get("status") == "success"]
-    all_lat = [e["latency"] for e in search_history if e.get("status") == "success"]
-    all_interp = [
-        e["interpretability"] for e in search_history if e.get("status") == "success"
-    ]
+    # Compute global bounds across ALL pipelines for consistent normalisation
+    all_f1 = [e["f1_score"] for e in pipelines]
+    all_lat = [e["latency"] for e in pipelines]
+    all_interp = [e["interpretability"] for e in pipelines]
     bounds = {
         "f1_score": (float(np.min(all_f1)), float(np.max(all_f1))),
         "latency": (float(np.min(all_lat)), float(np.max(all_lat))),
@@ -210,6 +241,18 @@ def delete_job_data(job_id: str):
         raise HTTPException(status_code=500, detail="Failed to delete job data")
     return {"message": "Job deleted"}
 
+
+# --- Ablation Study Routes ---
+# Ablation studies isolate the contribution of each component of the system by
+# running controlled variants (e.g., GA without BO, or optimising for F1 only).
+# Each ablation inherits its dataset and parameters from a completed parent job
+# so that all conditions are fairly compared on identical data.
+#
+# Idempotency is a key design requirement: if the same ablation is submitted twice
+# (e.g., the user clicks the button twice, or the frontend retries after a timeout),
+# the system must not run it twice. This is enforced with a MongoDB atomic update_one
+# that claims the ablation slot before submitting to the executor. Any concurrent
+# request that loses the race observes modified_count == 0 and backs off safely.
 
 # ablation schema
 
@@ -272,8 +315,9 @@ def get_ablations(
 def start_ablation(config: AblationConfig):
     """Submit an ablation study; inherits config from the parent job.
 
-    Idempotent: returns 200 if a result already exists, or 202 with
-    status "already_queued" if the same ablation is in-flight.
+    Idempotent: returns 200 if a non-failed result already exists.
+    Duplicate-submission prevention uses a MongoDB atomic update_one so it
+    is safe across multiple Uvicorn workers (unlike an in-process set).
     """
     from api.worker import run_ablation
 
@@ -282,52 +326,70 @@ def start_ablation(config: AblationConfig):
         raise HTTPException(status_code=400, detail="Invalid parent_job_id")
 
     db = get_db()
-    parent_doc = db.jobs.find_one({"_id": pid}, {"config": 1, "ablations": 1})
+    parent_doc = db.jobs.find_one({"_id": pid}, {"config": 1})
     if parent_doc is None:
         raise HTTPException(status_code=404, detail="Parent job not found")
 
     eff_mode = _effective_mode(config.mode, config.disable_bo)
-    running_key = f"{eff_mode}_{config.parent_job_id}"
+    parent_config = parent_doc["config"]
 
-    existing = parent_doc.get("ablations", {}).get(eff_mode)
-    if existing and existing.get("status", "completed") != "failed":
+    # Atomically claim the ablation slot: only succeeds when the slot is absent
+    # or previously failed. Any process that wins this update may submit to the
+    # executor; all others observe modified_count == 0 and back off.
+    claim = db.jobs.update_one(
+        {
+            "_id": pid,
+            "$or": [
+                {f"ablations.{eff_mode}": {"$exists": False}},
+                {f"ablations.{eff_mode}.status": "failed"},
+            ],
+        },
+        {
+            "$set": {
+                f"ablations.{eff_mode}": {
+                    "status": "queued",
+                    "mode": config.mode,
+                    "disable_bo": config.disable_bo,
+                }
+            }
+        },
+    )
+
+    if claim.modified_count == 0:
+        # Slot already taken — determine whether queued or completed.
+        doc = db.jobs.find_one({"_id": pid}, {f"ablations.{eff_mode}": 1})
+        existing = (doc or {}).get("ablations", {}).get(eff_mode, {})
+        if existing.get("status") == "queued":
+            return {
+                "status": "already_queued",
+                "mode": config.mode,
+                "parent_job_id": pid,
+                "disable_bo": config.disable_bo,
+            }
         return JSONResponse(
             status_code=200,
             content={
                 "status": "completed",
                 "mode": config.mode,
-                "parent_job_id": config.parent_job_id,
+                "parent_job_id": pid,
                 "disable_bo": config.disable_bo,
             },
         )
 
-    if running_key in _running_ablations:
-        return {
-            "status": "already_queued",
-            "mode": config.mode,
-            "parent_job_id": config.parent_job_id,
-            "disable_bo": config.disable_bo,
-        }
-
-    parent_config = parent_doc["config"]
-
-    _running_ablations.add(running_key)
-
     def _on_done(fut):
-        _running_ablations.discard(running_key)
         exc = fut.exception()
         if exc:
             import logging
 
             logging.getLogger("server").error(
-                f"Ablation {running_key} crashed: {exc}",
+                f"Ablation {eff_mode}_{pid} crashed: {exc}",
                 exc_info=exc,
             )
 
     future = _executor.submit(
         run_ablation,
         config.mode,
-        config.parent_job_id,
+        pid,
         parent_config["dataset_name"],
         config.disable_bo,
         parent_config.get("max_samples", 2000),
@@ -344,16 +406,23 @@ def start_ablation(config: AblationConfig):
     return {
         "status": "queued",
         "mode": config.mode,
-        "parent_job_id": config.parent_job_id,
+        "parent_job_id": pid,
         "disable_bo": config.disable_bo,
     }
 
 
 @app.get("/api/jobs/{job_id}/stream")
 async def stream_job(job_id: str, request: Request):
-    """SSE stream that pushes status + last 100 log lines whenever either changes.
+    """Server-Sent Events (SSE) stream for live job progress.
 
-    Closes automatically on terminal state or client disconnect.
+    The frontend subscribes to this endpoint immediately after submitting a job.
+    It receives a push notification every time the job status or logs change,
+    without needing to poll. The stream closes automatically when the job reaches
+    a terminal state (completed / failed / terminated) or when the client disconnects.
+
+    Diff-based emission: we compare each payload to the previous one and only send
+    when something actually changed. This avoids flooding the frontend with identical
+    frames during long-running BO evaluations where MongoDB hasn't been updated yet.
     """
 
     async def event_generator():

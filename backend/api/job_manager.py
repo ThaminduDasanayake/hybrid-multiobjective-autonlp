@@ -1,11 +1,27 @@
 """
-Job manager for the FastAPI backend.
+THE DISPATCHER — api/job_manager.py
+======================================
+This module is the bridge between the FastAPI server (which handles HTTP requests
+synchronously) and the background worker processes (which run the heavy ML workloads).
 
-Runs AutoML jobs in a ProcessPoolExecutor so they never block the async event loop.
-All job state lives in MongoDB; the filesystem is used only for log files and dataset caches.
+It has two main responsibilities:
 
-Cancellation is two-tier: setting stop_requested=True in MongoDB triggers cooperative exit
-inside the worker; future.cancel() cancels jobs that are still queued.
+1. Job lifecycle management: creates a MongoDB document for each new job, submits
+   it to the ProcessPoolExecutor, and tracks its Future so it can be cancelled later.
+
+2. State reads: provides thin wrappers around MongoDB queries so the server routes
+   don't need to know about the document schema.
+
+Key design decision — max_workers=1 (one job at a time):
+  Running jobs sequentially means each job gets the full CPU, producing fair and
+  reproducible runtime/latency measurements. This is essential for the ablation
+  studies: if two jobs ran in parallel they would compete for CPU, making timing
+  comparisons meaningless. Latency is a first-class research metric in this thesis.
+
+Cancellation is two-tier:
+  - stop_requested flag in MongoDB: triggers cooperative exit inside the running worker
+    (checked between GA generations via the progress callback).
+  - future.cancel(): for jobs that are still queued and haven't started yet.
 """
 
 import time
@@ -114,6 +130,14 @@ class JobManager:
             get_db_name(),
         )
         _futures[job_id] = future
+
+        # Automatically evict the completed future from _futures once done.
+        # Without this, _futures would grow unboundedly on a long-running server
+        # where jobs accumulate over days. The callback uses a default argument
+        # (jid=job_id) to capture the job_id at lambda creation time, avoiding
+        # the classic late-binding closure bug.
+        future.add_done_callback(lambda f, jid=job_id: _futures.pop(jid, None))
+
         logger.info(f"Submitted job {job_id} to ProcessPoolExecutor")
         return job_id
 
@@ -173,11 +197,17 @@ class JobManager:
         return True
 
     def get_logs(self, job_id: str, lines: int = 100) -> list[str]:
-        """Return the last *lines* lines from the job's rotating log file."""
+        """Return the last *lines* lines from the job's rotating log file.
+
+        The server calls this on every SSE tick to include recent log output in the
+        live stream. Returning only the tail (default 100 lines) keeps the payload
+        small — the frontend doesn't need the full history, just enough context to
+        show what the worker is currently doing.
+        """
         import glob as _glob
 
         log_dir = Path(_BACKEND_ROOT) / "logs"
-        matches = sorted(_glob.glob(str(log_dir / f"run_{job_id}.log")))
+        matches = _glob.glob(str(log_dir / f"run_{job_id}.log"))
         if not matches:
             return []
         try:

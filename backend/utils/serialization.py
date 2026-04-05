@@ -6,7 +6,7 @@ import numpy as np
 
 
 def _safe_float(v: float):
-    """Return None for inf/nan so FastAPI can serialise the value as JSON null."""
+    """Return None for inf/nan so FastAPI can serialize the value as JSON null."""
     return None if (math.isinf(v) or math.isnan(v)) else v
 
 
