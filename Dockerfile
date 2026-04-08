@@ -22,4 +22,4 @@ EXPOSE 7860
 
 # uvicorn is executed through uv so the project virtual-env is on the path.
 # Port 7860 is required by Hugging Face Spaces.
-CMD ["uv", "run", "uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]

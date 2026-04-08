@@ -1,21 +1,5 @@
 """
-THE SORTING HAT — pareto.py
-=============================
-This module implements the core Pareto dominance logic that separates the "good"
-pipelines from the "bad" ones. In multi-objective optimisation, there is rarely
-a single "best" solution — instead, there is a set of trade-off solutions where
-improving one objective forces a sacrifice on another.
-
-A solution is Pareto-optimal (on the Pareto front) if no other solution beats it
-on ALL objectives at the same time. For example, a high-F1 but slow pipeline and
-a fast but slightly lower-F1 pipeline can both be Pareto-optimal — neither dominates
-the other, because each wins on a different objective.
-
-Architecture note: This module contains only the raw dominance primitives.
-ParetoAnalyzer in utils/evaluation.py imports these and adds higher-level analytics
-(hypervolume, knee-point detection, solution comparison) on top. Keeping primitives
-here ensures the experiments/ scripts can import them without pulling in the full
-evaluation stack.
+Implements Pareto dominance logic to extract the non-dominated front of multi-objective solutions.
 """
 
 from typing import Any, Dict, List
@@ -30,15 +14,9 @@ def is_dominated(
     objectives: List[str] = None,
     maximize: List[bool] = None,
 ) -> bool:
-    """Return True if solution_a is Pareto-dominated by solution_b.
-
-    Plain English: B dominates A if B is *no worse* than A on every objective,
-    AND *strictly better* than A on at least one objective. If B is better on
-    F1 but worse on latency, neither dominates the other — both survive.
-
-    The `maximize` list tells us the direction for each objective:
-      True  = higher is better (F1, interpretability)
-      False = lower is better (latency)
+    """
+    Evaluates whether solution_a is strictly Pareto-dominated by solution_b.
+    A solution is dominated if it is no better on all objectives and strictly worse on at least one.
     """
 
     if objectives is None:
@@ -78,12 +56,8 @@ def get_pareto_front(
     objectives: List[str] = None,
     maximize: List[bool] = None,
 ) -> List[Dict[str, Any]]:
-    """Return the subset of solutions that are not Pareto-dominated by any other solution.
-
-    Uses a brute-force O(n²) pairwise comparison. This is intentional and safe here:
-    a typical run evaluates fewer than 200 unique pipelines, so n² is at most ~40,000
-    comparisons — negligible. A more complex algorithm (e.g., fast non-dominated sort)
-    would add code complexity with no measurable benefit at this scale.
+    """
+    Extracts the Pareto-optimal front from a given population using an O(n²) pairwise dominance check.
     """
     if objectives is None:
         objectives = _DEFAULT_OBJECTIVES

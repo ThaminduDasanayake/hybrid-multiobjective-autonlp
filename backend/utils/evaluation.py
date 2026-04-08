@@ -1,42 +1,26 @@
 """
-THE ACCOUNTANT — utils/evaluation.py
-======================================
-After the AutoML search finishes, this module computes the final summary analytics
-that the frontend displays: hypervolume, knee-point, objective statistics, and the
-comparison table between different solutions.
-
-It sits one layer above the raw dominance primitives in automl/pareto.py.
-ParetoAnalyzer delegates dominance checks to those primitives and adds:
-  - Hypervolume indicator (a scalar measure of Pareto front quality)
-  - Knee-point detection (the "best balanced" trade-off on the front)
-  - Summary statistics (mean, std, min, max for each objective)
-  - Head-to-head solution comparison for the UI's comparison panel
+Computes summary analytics for multi-objective optimization, including hypervolume and knee-point detection.
 """
 
-import numpy as np
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
+import numpy as np
 from pymoo.indicators.hv import HV
 
-from automl.pareto import is_dominated, get_pareto_front
+from automl.pareto import get_pareto_front, is_dominated
 
-# Immutable module-level constants for the three-objective setup.
-# Using tuples (not lists) and defining them once at module level avoids:
-#   1. Mutable default argument footgun — Python evaluates list defaults once at
-#      class definition time; any accidental mutation would corrupt future calls.
-#   2. Repeated allocation — these are constructed on every method call otherwise.
+# Immutable objective configurations prevent mutable default argument bugs
 _DEFAULT_OBJECTIVES: tuple = ("f1_score", "latency", "interpretability")
 _DEFAULT_MAXIMIZE: tuple = (True, False, True)
-# Paired (objective, maximize) tuple used by compare_solutions.
-_COMPARE_OBJECTIVES: tuple = (("f1_score", True), ("latency", False), ("interpretability", True))
+_COMPARE_OBJECTIVES: tuple = (
+    ("f1_score", True),
+    ("latency", False),
+    ("interpretability", True),
+)
 
 
 class ParetoAnalyzer:
-    """High-level analytics on top of the Pareto dominance primitives.
-
-    Used by worker.py to produce the final metrics payload written to MongoDB,
-    and by server.py to compute the hypervolume convergence history for the chart.
-    """
+    """Provides high-level analytics on top of core Pareto dominance primitives."""
 
     @staticmethod
     def is_dominated(
@@ -45,11 +29,12 @@ class ParetoAnalyzer:
         objectives: tuple = None,
         maximize: tuple = None,
     ) -> bool:
+        """Pass-through to primitive dominance check."""
         return is_dominated(
             solution_a,
             solution_b,
-            objectives if objectives is not None else _DEFAULT_OBJECTIVES,
-            maximize if maximize is not None else _DEFAULT_MAXIMIZE,
+            list(objectives if objectives is not None else _DEFAULT_OBJECTIVES),
+            list(maximize if maximize is not None else _DEFAULT_MAXIMIZE),
         )
 
     @staticmethod
@@ -58,10 +43,11 @@ class ParetoAnalyzer:
         objectives: tuple = None,
         maximize: tuple = None,
     ) -> List[Dict[str, Any]]:
+        """Pass-through to primitive Pareto front extraction."""
         return get_pareto_front(
             solutions,
-            objectives if objectives is not None else _DEFAULT_OBJECTIVES,
-            maximize if maximize is not None else _DEFAULT_MAXIMIZE,
+            list(objectives if objectives is not None else _DEFAULT_OBJECTIVES),
+            list(maximize if maximize is not None else _DEFAULT_MAXIMIZE),
         )
 
     @staticmethod
@@ -69,18 +55,8 @@ class ParetoAnalyzer:
         pareto_front: List[Dict[str, Any]],
         objectives: tuple = None,
         maximize: tuple = None,
-    ) -> Dict[str, Any]:
-        """Return the Pareto-front solution that best balances all objectives simultaneously.
-
-        The "utopia point" is the hypothetical perfect solution: the best F1, the lowest
-        latency, and the highest interpretability all at once. In practice, no real solution
-        achieves this — the Pareto front shows us the actual trade-offs.
-
-        The knee point is the Pareto-front solution whose normalised objective vector
-        is closest (Euclidean distance) to the utopia point. It is the "least bad" solution
-        in all directions at once — the natural recommendation when you don't have a strong
-        preference for one objective over another.
-        """
+    ) -> Dict[str, Any] | None:
+        """Identifies the Pareto-optimal solution with the minimum Euclidean distance to the utopia point [1,1,1]."""
         if not pareto_front:
             return None
 
@@ -94,14 +70,14 @@ class ParetoAnalyzer:
 
         obj_values = np.array(
             [[sol[obj] for sol in pareto_front] for obj in objectives]
-        ).T  # shape: (n_solutions, n_objectives)
+        ).T
 
-        # Normalise each objective to [0, 1] in the direction that maximisation = 1.
+        # Normalize objectives to [0, 1] mapped toward the maximization direction
         normalized = np.zeros_like(obj_values)
         for i, (is_max, obj_name) in enumerate(zip(maximize, objectives)):
             col = obj_values[:, i]
-            min_val = np.min(col)
-            max_val = np.max(col)
+            min_val = float(np.min(col))
+            max_val = float(np.max(col))
 
             if max_val - min_val > 1e-10:
                 if is_max:
@@ -176,7 +152,7 @@ class ParetoAnalyzer:
     def compare_solutions(
         sol_a: Dict[str, Any], sol_b: Dict[str, Any]
     ) -> Dict[str, str]:
-        """Return per-objective comparison dict ('A', 'B', or 'tie') for two solutions."""
+        """Performs a direct objective-by-objective comparison between two solutions."""
         comparison = {}
 
         for obj, maximize in _COMPARE_OBJECTIVES:
@@ -198,29 +174,17 @@ class ParetoAnalyzer:
         bounds: Dict[str, tuple[float, float]] = None,
         ref_point: np.ndarray = None,
     ) -> float:
-        """Return the hypervolume indicator for the Pareto front.
-
-        Hypervolume measures the volume of the objective space that is "dominated"
-        by the Pareto front relative to a fixed worst-case reference point. A larger
-        hypervolume means the front covers more of the space — i.e., the system found
-        better trade-off solutions.
-
-        Two normalisation steps keep the value comparable across runs:
-        1. Each objective is scaled to [0, 1] using global min/max bounds.
-        2. Maximised objectives (F1, interpretability) are flipped (1 - value) so the
-           whole problem is expressed as minimization — which is what pymoo's HV expects.
-
-        The reference point [1.1, 1.1, 1.1] sits slightly beyond the worst possible
-        normalised value (1.0) in each dimension, ensuring all Pareto-front solutions
-        contribute a positive volume.
-        """
+        """Calculates the hypervolume indicator for the Pareto front after normalizing objectives to [0, 1]."""
         if not pareto_front_solutions:
             return 0.0
 
         # Single-pass construction: one Python-level loop, one numpy allocation,
         # three O(1) column views — vs. three separate loops and three temp lists.
         _raw = np.array(
-            [[s["f1_score"], s["latency"], s["interpretability"]] for s in pareto_front_solutions]
+            [
+                [s["f1_score"], s["latency"], s["interpretability"]]
+                for s in pareto_front_solutions
+            ]
         )
         f1_scores, latencies, interp_scores = _raw[:, 0], _raw[:, 1], _raw[:, 2]
 
@@ -243,7 +207,7 @@ class ParetoAnalyzer:
         lat_norm = _normalise(latencies, *bounds["latency"])
         interp_norm = _normalise(interp_scores, *bounds["interpretability"])
 
-        # Convert to minimization form: negate maximized objectives.
+        # Convert to minimization format for pymoo
         F = np.column_stack(
             [
                 1.0 - f1_norm,
@@ -252,6 +216,7 @@ class ParetoAnalyzer:
             ]
         )
 
+        # Use a reference point slightly worse than the maximum normalized bounds
         if ref_point is None:
             ref_point = np.array([1.1, 1.1, 1.1])
 
@@ -263,15 +228,7 @@ class ParetoAnalyzer:
         results: Dict[str, Any],
         strategy: str = "max_f1",
     ) -> Dict[str, Any]:
-        """Select one solution from the Pareto front using a named deployment strategy.
-
-        The Pareto front gives the user a set of trade-off solutions, not a single answer.
-        This method lets a caller express a preference and get a concrete recommendation:
-          - max_f1:      best classification accuracy (e.g., academic benchmarking)
-          - min_latency: fastest inference (e.g., real-time production systems)
-          - max_interp:  most interpretable (e.g., regulated domains like finance/healthcare)
-          - knee:        balanced trade-off — the natural default when no priority is set
-        """
+        """Selects a specific Pareto-optimal solution"""
         front = [p for p in results.get("pipelines", []) if p.get("is_pareto_optimal")]
         if not front:
             raise ValueError("Pareto front is empty — cannot select a solution.")
@@ -285,4 +242,6 @@ class ParetoAnalyzer:
         elif strategy == "knee":
             return ParetoAnalyzer.compute_knee_point(front) or front[0]
         else:
-            raise ValueError(f"Unknown strategy '{strategy}'. Choose from: max_f1, min_latency, max_interp, knee.")
+            raise ValueError(
+                f"Unknown strategy '{strategy}'. Choose from: max_f1, min_latency, max_interp, knee."
+            )

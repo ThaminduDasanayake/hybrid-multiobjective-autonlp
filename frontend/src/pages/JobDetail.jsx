@@ -114,6 +114,10 @@ const JobDetail = () => {
   const randomSearchRT =
     randomSearchData?.status === "completed" ? randomSearchData.runtime_seconds : null;
 
+  // An ablation is "in progress" if the backend reports status "queued" (reload-safe)
+  // OR the local optimistic flag is set (covers the gap before the first poll responds).
+  const inProgress = (key, data) => !!queuedAblations[key] || data?.status === "queued";
+
   // Scroll to top when navigating to a new job
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -124,7 +128,7 @@ const JobDetail = () => {
     if (!ablationsData) return;
     const current = useStore.getState().queuedAblations;
     for (const key of Object.keys(current)) {
-      if (current[key] && ablationsData[key]) {
+      if (current[key] && ablationsData[key]?.status === "completed") {
         setAblationQueued(key, false);
       }
     }
@@ -637,28 +641,28 @@ const JobDetail = () => {
                   {!single && (
                     <RunButton
                       label="Run Single-Objective Baseline"
-                      queued={!!queuedAblations[`single_f1_${jobId}`]}
+                      queued={inProgress(`single_f1_${jobId}`, singleData)}
                       onClick={() => handleRun("single_f1", false)}
                     />
                   )}
                   {!two && (
                     <RunButton
                       label="Run 2-Objective (No Interp)"
-                      queued={!!queuedAblations[`multi_2d_${jobId}`]}
+                      queued={inProgress(`multi_2d_${jobId}`, twoData)}
                       onClick={() => handleRun("multi_2d", false)}
                     />
                   )}
                   {!gaOnly && (
                     <RunButton
                       label="Run GA-Only (No BO)"
-                      queued={!!queuedAblations[`ga_only_${jobId}`]}
+                      queued={inProgress(`ga_only_${jobId}`, gaOnlyData)}
                       onClick={() => handleRun("multi_3d", true)}
                     />
                   )}
                   {!randomSearch && (
                     <RunButton
                       label="Run Random Search Baseline"
-                      queued={!!queuedAblations[`random_search_${jobId}`]}
+                      queued={inProgress(`random_search_${jobId}`, randomSearchData)}
                       onClick={() => handleRun("random_search", false)}
                     />
                   )}

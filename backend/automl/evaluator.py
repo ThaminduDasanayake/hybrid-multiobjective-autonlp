@@ -1,14 +1,5 @@
 """
-THE JUDGE — evaluator.py
-=========================
-This module sits between the Genetic Algorithm and the Bayesian Optimizer.
-When the GA produces a new pipeline blueprint (chromosome), it hands it to the Judge.
-The Judge first checks if this exact pipeline has been evaluated before (cache hit).
-If not, it enforces compatibility rules, calls the Tuner (BO) to find the best
-hyperparameters, and then computes a three-objective fitness score:
-  (F1 score ↑, inference latency ↓, interpretability ↑)
-
-This fitness tuple is what DEAP uses to rank individuals with NSGA-II.
+Evaluates pipeline chromosomes, enforcing structural constraints and returning fitness tuples.
 """
 
 import time
@@ -24,21 +15,13 @@ from .persistence import ResultStore
 
 logger = get_logger("evaluator")
 
-# Sentinel fitness values returned for pipelines that cannot be evaluated.
-# The values are directionally "worst possible" for DEAP's weight vector (1.0, -1.0, 1.0):
-#   F1=0 (worst), latency=huge (worst), interpretability=0 (worst).
-# Two distinct sentinels are used:
-#   PENALTY_FITNESS — for structurally invalid pipelines (e.g., NaiveBayes after
-#                     a scaler that produces negative values). These are deterministic
-#                     and are cached so the GA never wastes time re-evaluating them.
-#   ERROR_FITNESS   — for transient runtime failures (unexpected exceptions). These
-#                     are NOT cached, allowing the GA to retry the individual later.
+# Sentinel fitness values for structural invalidity (cached) and runtime errors (uncached)
 PENALTY_FITNESS = (0.0, 1e6, 0.0)
 ERROR_FITNESS = (0.0, 1e7, 0.0)
 
 
 class PipelineEvaluator:
-    """Evaluates GA pipeline individuals and returns (F1, latency, interpretability) fitness tuples."""
+    """Computes multi-objective fitness scores for GA individuals."""
 
     def __init__(
         self,
@@ -63,20 +46,10 @@ class PipelineEvaluator:
     def evaluate(
         self, individual: list, generation: int = 0
     ) -> Tuple[float, float, float]:
-        """
-        Evaluate an individual (GA chromosome).
-
-        Returns:
-            Tuple of (f1_score, latency, interpretability)
-            DEAP handles direction via weights (1.0, -1.0, 1.0).
-        """
+        """Evaluate an individual and return its (f1_score, latency, interpretability) tuple."""
         cache_key = self.result_store.get_individual_key(individual)
 
-        # Cache gate: if this exact architecture has been evaluated before (including
-        # deterministic penalty results), return the stored score immediately.
-        # Error results (transient failures) are the only exception — they are not
-        # reused so the GA gets a chance to retry a pipeline that may have failed
-        # due to a temporary resource issue.
+        # Retrieve from cache if previously evaluated (excluding transient errors)
         cached = self.result_store.get_cached_evaluation(cache_key)
         if cached and cached.get("status") != "error":
             return cached["f1_score"], cached["latency"], cached["interpretability"]
@@ -90,11 +63,7 @@ class PipelineEvaluator:
         ngram_range = individual[4]
         max_features = individual[5]
 
-        # Compatibility check before spending any compute on BO.
-        # Some gene combinations are mathematically illegal (e.g., MultinomialNB
-        # requires non-negative inputs, so it cannot follow scalers or dim reduction
-        # methods that produce negative values). Invalid combos receive PENALTY_FITNESS
-        # and are cached so this check only runs once per unique architecture.
+        # Verify architectural compatibility before assigning compute resources
         if not self._validate_structure(scaler_type, dim_reduction_type, model_type):
             logger.warning(f"Invalid structure: {individual}. applying penalty.")
             self.result_store.cache_evaluation(
@@ -138,7 +107,7 @@ class PipelineEvaluator:
             f1_score = bo_result["best_score"]
             latency = bo_result["inference_time"]
 
-            # Compute interpretability via shared scoring function
+            # Calculate structural interpretability score
             interpretability = interpretability_score(
                 scaler_type,
                 dim_reduction_type,
@@ -152,13 +121,7 @@ class PipelineEvaluator:
             # Update observed objective ranges (for reporting only)
             self._update_objective_ranges(f1_score, latency, interpretability)
 
-            # Results go to two separate stores with different purposes:
-            # - eval_cache (via cache_evaluation): the deduplication store. Keyed by
-            #   MD5 of the architecture. Only one entry per unique pipeline ever exists
-            #   here. hybrid_automl.py reads this to build the final result payload.
-            # - search_history (via add_to_history): the chronological log. Records
-            #   every *new* successful evaluation in order, with generation and timestamp,
-            #   so the convergence chart can show how the Pareto front evolved over time.
+            # Store result in the deduplication cache
             result = {
                 "status": "success",
                 "scaler": scaler_type,
@@ -193,13 +156,10 @@ class PipelineEvaluator:
                 generation=generation,
             )
 
-            # Return raw values — DEAP handles direction via weights (1.0, -1.0, 1.0)
             return f1_score, latency, interpretability
 
         except Exception as e:
             logger.error(f"Error evaluating individual {individual}: {e}")
-            # Don't cache transient runtime failures as final results.
-            # Return sentinel for current generation; allow future retry.
             return ERROR_FITNESS
 
     def _update_objective_ranges(
@@ -218,18 +178,7 @@ class PipelineEvaluator:
 
     @staticmethod
     def _validate_structure(scaler: str, dim_reduction: str, model: str) -> bool:
-        """Return False if the pipeline violates component compatibility constraints.
-
-        MultinomialNB (Naive Bayes) works by computing word count probabilities.
-        It mathematically requires all input values to be non-negative (you cannot
-        have a negative word count). Two pipeline steps can violate this:
-          - StandardScaler / RobustScaler: centre the data around zero, producing
-            negative values for below-average features.
-          - TruncatedSVD (our "pca" mode): decomposes the feature matrix into
-            latent dimensions, which can also produce negative projections.
-        Any pipeline that pairs NaiveBayes with these components is flagged as
-        invalid before BO even runs, saving the evaluation budget.
-        """
+        """Validate pipeline structural integrity (e.g., preventing negative inputs to Naive Bayes)."""
         if model == "naive_bayes":
             if scaler in ("standard", "robust"):
                 return False

@@ -1,37 +1,15 @@
 """
-THE KITCHEN LINE — worker.py
-==============================
-This module contains the functions that actually *run* the AutoML engine. They are
-executed in separate OS processes (via ProcessPoolExecutor) so that the heavy ML
-computation never blocks the FastAPI async event loop.
-
-Think of the server (server.py) as the front-of-house that takes orders. This module
-is the kitchen in the back: it receives the order ticket, does all the heavy cooking
-(data loading, GA search, BO tuning), and writes the result to MongoDB when done.
-
-Two important constraints shape this module's design:
-
-1. Module-level top-level functions only: Python's 'spawn' start method (the default
-   on macOS and Windows) launches worker processes by pickling the function and its
-   arguments and re-importing the module from scratch. Only module-level functions
-   can be pickled this way — lambdas and nested functions cannot.
-
-2. Deferred ML imports: The main FastAPI process should start up fast and stay lean.
-   Heavy packages (scikit-learn, numpy, HuggingFace datasets, etc.) are only imported
-   inside the worker function bodies, so the server itself never loads them.
+Executes heavy AutoML computations in isolated processes to prevent blocking the FastAPI async event loop.
+Designed with module-level functions and deferred imports to comply with Python's 'spawn' multiprocessing method.
 """
 
 from contextlib import contextmanager
 
 
 def _suppress_sklearn_warnings() -> None:
-    """Suppress noisy sklearn warnings that are expected during hyperparameter search.
-
-    Called at the start of each worker entry point after deferred imports are available.
-    Extracted here to avoid duplicating the same three filterwarnings() calls in both
-    run_automl_job() and run_ablation(), keeping them in sync if new categories arise.
-    """
+    """Mutes expected sklearn warnings during hyperparameter tuning to keep logs clean."""
     import warnings
+
     from sklearn.exceptions import ConvergenceWarning
 
     warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
@@ -40,7 +18,7 @@ def _suppress_sklearn_warnings() -> None:
 
 
 def _ensure_sys_path(backend_root_str: str) -> None:
-    """Insert backend root into sys.path so local packages are importable in spawned workers."""
+    """Appends backend root to sys.path, ensuring local modules resolve correctly in spawned processes."""
     import sys
 
     if backend_root_str not in sys.path:
@@ -49,10 +27,7 @@ def _ensure_sys_path(backend_root_str: str) -> None:
 
 @contextmanager
 def _job_file_logging(job_id: str, backend_root_str: str):
-    """Attach a per-job RotatingFileHandler to the root logger for the duration of a worker run.
-
-    Guarantees handler cleanup on exit to prevent file-descriptor leaks across reused workers.
-    """
+    """Context manager that attaches and guarantees cleanup of a per-job RotatingFileHandler."""
     import logging
     from logging.handlers import RotatingFileHandler
     from pathlib import Path
@@ -80,11 +55,7 @@ def _job_file_logging(job_id: str, backend_root_str: str):
 
 
 def _format_metrics(raw: dict | None) -> dict:
-    """Normalise ParetoAnalyzer output into the flat shape the UI expects.
-
-    All numeric values are cast to native Python types to avoid
-    ``bson.errors.InvalidDocument`` when pymongo encounters numpy scalars.
-    """
+    """Normalizes ParetoAnalyzer metrics to native Python types for MongoDB serialization."""
     if raw:
         from utils import to_python_type
 
@@ -108,13 +79,10 @@ def _format_metrics(raw: dict | None) -> dict:
     }
 
 
-# Tracked job entry point
-
-
 def run_automl_job(
     job_id: str, backend_root_str: str, mongo_uri: str, db_name: str
 ) -> None:
-    """Run a tracked AutoML job, streaming progress to MongoDB on every generation callback."""
+    """Primary worker entry point for a tracked AutoML optimization job."""
     _ensure_sys_path(backend_root_str)
 
     import os
@@ -132,9 +100,6 @@ def run_automl_job(
     from utils.evaluation import ParetoAnalyzer
     from utils.logger import get_logger
 
-    # Each spawned worker process must create its own MongoClient. MongoDB connections
-    # use sockets that cannot be safely shared across process boundaries — attempting
-    # to do so causes unpredictable connection errors and data corruption.
     client = MongoClient(mongo_uri, tlsCAFile=certifi.where())
     db = client[db_name]
     jobs = db.jobs
@@ -153,13 +118,8 @@ def run_automl_job(
         logger = get_logger("worker")
         logger.info(f"Worker started for job {job_id} (PID {os.getpid()})")
 
-        # _TerminationRequested inherits from BaseException (not Exception) deliberately.
-        # A bare `except Exception` clause — common in sklearn internals — would silently
-        # swallow a standard Exception, making termination invisible. BaseException
-        # bypasses all bare except blocks and propagates cleanly up to the outer
-        # `except _TerminationRequested` handler that logs and marks the job as terminated.
         class _TerminationRequested(BaseException):
-            """Raised cooperatively when stop_requested is set; bypasses bare except Exception."""
+            """Exception used for cooperative shutdown; inherits from BaseException to bypass bare try-except blocks."""
 
         _update_status({"status": "running", "message": "Loading dataset..."})
 
@@ -188,14 +148,8 @@ def run_automl_job(
                 disable_bo=config.get("disable_bo", False),
             )
 
-            # The progress callback serves a dual purpose:
-            # 1. Live metrics push: after each GA generation, it writes the current
-            #    best F1, latency, cache hit rate, and generation number to MongoDB,
-            #    which the SSE stream then forwards to the frontend in real time.
-            # 2. Cooperative termination: it checks MongoDB for a stop_requested flag
-            #    before each generation. If the user has clicked "Stop", it raises
-            #    _TerminationRequested to cleanly unwind the search.
             def progress_callback(progress_info: dict) -> None:
+                """Handles live metric streaming and cooperative termination polling between GA generations."""
                 if _is_stop_requested():
                     logger.info(f"Stop signal detected for job {job_id}")
                     raise _TerminationRequested()
@@ -208,8 +162,6 @@ def run_automl_job(
                 }
 
                 try:
-                    # get_live_metrics() encapsulates cache access — no direct
-                    # coupling to ResultStore's internal dict schema here.
                     fields.update(automl.result_store.get_live_metrics())
                 except Exception:
                     logger.debug("Live metric collection failed", exc_info=True)
@@ -264,10 +216,6 @@ def run_automl_job(
             client.close()
 
 
-
-# --- Ablation Study Entry Point ---
-
-
 def run_ablation(
     mode: str,
     parent_job_id: str,
@@ -282,7 +230,7 @@ def run_ablation(
     mongo_uri: str = "",
     db_name: str = "",
 ) -> None:
-    """Run one ablation study and write the result to the parent job's ablations field in MongoDB."""
+    """Worker entry point for an ablation study; results are written directly to the parent job's document."""
     _ensure_sys_path(backend_root_str)
 
     import time
@@ -320,9 +268,6 @@ def run_ablation(
         try:
             weights = OPTIMIZATION_MODES.get(mode, [1.0, -1.0, 1.0])
 
-            # Random search is always a GA-only run (no BO tuning). This is already
-            # implied by the mode name, but we set disable_bo explicitly to ensure
-            # HybridAutoML doesn't accidentally run the Tuner in baseline mode.
             if mode == "random_search":
                 disable_bo = True
 
@@ -353,10 +298,6 @@ def run_ablation(
             analyzer = ParetoAnalyzer()
             raw = analyzer.compute_metrics(results.get("pipelines", []))
             metrics = _format_metrics(raw)
-            # knee_point is a single recommended solution — only meaningful when a human
-            # is making a deployment decision from one result. In the ablation comparison
-            # table we compare aggregate metrics (hypervolume, best F1, etc.) across
-            # conditions, so the knee point is irrelevant and stripped to keep payloads lean.
             metrics.pop("knee_point", None)
 
             payload = {

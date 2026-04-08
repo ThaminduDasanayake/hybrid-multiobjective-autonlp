@@ -1,27 +1,5 @@
 """
-THE DISPATCHER — api/job_manager.py
-======================================
-This module is the bridge between the FastAPI server (which handles HTTP requests
-synchronously) and the background worker processes (which run the heavy ML workloads).
-
-It has two main responsibilities:
-
-1. Job lifecycle management: creates a MongoDB document for each new job, submits
-   it to the ProcessPoolExecutor, and tracks its Future so it can be cancelled later.
-
-2. State reads: provides thin wrappers around MongoDB queries so the server routes
-   don't need to know about the document schema.
-
-Key design decision — max_workers=1 (one job at a time):
-  Running jobs sequentially means each job gets the full CPU, producing fair and
-  reproducible runtime/latency measurements. This is essential for the ablation
-  studies: if two jobs ran in parallel they would compete for CPU, making timing
-  comparisons meaningless. Latency is a first-class research metric in this thesis.
-
-Cancellation is two-tier:
-  - stop_requested flag in MongoDB: triggers cooperative exit inside the running worker
-    (checked between GA generations via the progress callback).
-  - future.cancel(): for jobs that are still queued and haven't started yet.
+Orchestrates worker dispatch, tracking, and cancellation for AutoML jobs via ProcessPoolExecutor and MongoDB.
 """
 
 import time
@@ -32,45 +10,38 @@ from typing import Any
 from uuid import uuid4
 
 from api.db import get_db, get_db_name, get_mongo_uri
+from api.workers.paths import BACKEND_ROOT
 from utils.logger import get_logger
 
 logger = get_logger("job_manager")
 
-# One executor shared across all HTTP requests.
-# max_workers=1: sequential execution ensures each job gets full CPU resources,
-# producing fair and comparable runtime/latency metrics for ablation studies.
+# Single worker limits execution to one job at a time, preventing CPU contention and ensuring latency benchmark integrity.
 _executor = ProcessPoolExecutor(max_workers=1)
 _futures: dict[str, Future] = {}
 
-# Absolute path to the backend root — passed to worker processes so they can
-# reconstruct sys.path under the 'spawn' start method (macOS default, Python 3.12+).
-_BACKEND_ROOT = str(Path(__file__).parent.parent.resolve())
-
-# Fields excluded from status reads (large payload fields).
+_BACKEND_ROOT = str(BACKEND_ROOT)
 _STATUS_PROJECTION = {"result": 0, "ablations": 0}
 
 
 class JobManager:
-    """Manages background AutoML jobs using MongoDB and a ProcessPoolExecutor."""
+    """Manages the creation, status retrieval, and termination of background optimization jobs."""
 
     def __init__(self) -> None:
         self.db = get_db()
         self.jobs = self.db.jobs
 
-    # reads
-
     def get_status(self, job_id: str) -> dict[str, Any] | None:
-        """Return status fields for a job (excluding large result/ablations payloads), or None."""
+        """Return status fields for a job (excluding large result/ablations payloads)"""
         doc = self.jobs.find_one({"_id": job_id}, _STATUS_PROJECTION)
         if doc is None:
             return None
         doc["job_id"] = doc.pop("_id")
-        doc.pop("config", None)          # not needed in status response
-        doc.pop("stop_requested", None)  # internal field, not for frontend
+        doc.pop("config", None)
+        doc.pop("stop_requested", None)
         return doc
 
     def get_result(self, job_id: str) -> dict[str, Any] | None:
-        """Return the result dict (with config attached) for a completed job, or None."""
+        """Retrieves the complete result dictionary alongside its parent configuration."""
         doc = self.jobs.find_one({"_id": job_id}, {"result": 1, "config": 1})
         if doc is None or doc.get("result") is None:
             return None
@@ -79,25 +50,22 @@ class JobManager:
         return result
 
     def list_jobs(self) -> dict[str, dict[str, Any]]:
-        """Return all jobs sorted by start_time descending, with dataset_name flattened in."""
+        """Retrieves an ordered dictionary of all historical jobs and their high-level configurations."""
         cursor = self.jobs.find({}, _STATUS_PROJECTION).sort("start_time", -1)
 
         jobs: dict[str, dict[str, Any]] = {}
         for doc in cursor:
             job_id = doc.pop("_id")
-            # Extract dataset_name from nested config and flatten it.
             config = doc.pop("config", {})
             doc["dataset_name"] = config.get("dataset_name", "")
-            doc.pop("stop_requested", None)  # internal field, not for frontend
+            doc.pop("stop_requested", None)
             doc["job_id"] = job_id
             jobs[job_id] = doc
         return jobs
 
-    # process management
-
     def create_job(self, config: dict[str, Any]) -> str:
         """Create a new AutoML job and submit it to the executor."""
-        from api.worker import run_automl_job
+        from api.workers.worker import run_automl_job
 
         job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
 
@@ -131,26 +99,24 @@ class JobManager:
         )
         _futures[job_id] = future
 
-        # Automatically evict the completed future from _futures once done.
-        # Without this, _futures would grow unboundedly on a long-running server
-        # where jobs accumulate over days. The callback uses a default argument
-        # (jid=job_id) to capture the job_id at lambda creation time, avoiding
-        # the classic late-binding closure bug.
+        # Callback eviction prevents _futures dict from growing unboundedly in long-running processes
         future.add_done_callback(lambda f, jid=job_id: _futures.pop(jid, None))
 
         logger.info(f"Submitted job {job_id} to ProcessPoolExecutor")
         return job_id
 
     def terminate_job(self, job_id: str) -> bool:
-        """Signal cooperative termination via MongoDB; cancel the future if still queued."""
+        """Initiates cancellation via MongoDB flag and cancels executor future if pending."""
         result = self.jobs.update_one(
             {"_id": job_id},
-            {"$set": {
-                "stop_requested": True,
-                "status": "terminated",
-                "message": "Job was manually terminated",
-                "last_updated": time.time(),
-            }},
+            {
+                "$set": {
+                    "stop_requested": True,
+                    "status": "terminated",
+                    "message": "Job was manually terminated",
+                    "last_updated": time.time(),
+                }
+            },
         )
         if result.matched_count == 0:
             logger.error(f"No job found for {job_id}")
@@ -180,7 +146,9 @@ class JobManager:
             try:
                 fut.result(timeout=10)
             except Exception:
-                logger.warning(f"Worker for {job_id} did not finish cleanly within timeout")
+                logger.warning(
+                    f"Worker for {job_id} did not finish cleanly within timeout"
+                )
                 return False
 
         self.jobs.delete_one({"_id": job_id})
@@ -197,13 +165,7 @@ class JobManager:
         return True
 
     def get_logs(self, job_id: str, lines: int = 100) -> list[str]:
-        """Return the last *lines* lines from the job's rotating log file.
-
-        The server calls this on every SSE tick to include recent log output in the
-        live stream. Returning only the tail (default 100 lines) keeps the payload
-        small — the frontend doesn't need the full history, just enough context to
-        show what the worker is currently doing.
-        """
+        """Retrieves last records from the job's rotating log file for live frontend stream."""
         import glob as _glob
 
         log_dir = Path(_BACKEND_ROOT) / "logs"
