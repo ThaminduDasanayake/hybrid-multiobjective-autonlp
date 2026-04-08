@@ -1,14 +1,9 @@
-/**
- * Global client-side state via Zustand.
- *
- * Keeps cross-page state (active job) out of individual component state
- * so that navigating between pages doesn't lose it.
- */
+// Global Zustand store — keeps job state alive across page navigation.
 import { create } from "zustand";
 import { ACTIVE_JOB_KEY } from "./constants";
 
 export const useStore = create((set) => ({
-  /** ID of the job currently being monitored, or null. */
+  // The job currently being watched, or null.
   activeJobId: localStorage.getItem(ACTIVE_JOB_KEY) || null,
 
   setActiveJobId: (id) => {
@@ -17,21 +12,16 @@ export const useStore = create((set) => ({
     set({ activeJobId: id });
   },
 
-  /** Clear when the user starts a brand-new run. */
+  // Clear the active job when starting a fresh run.
   resetJob: () => {
     localStorage.removeItem(ACTIVE_JOB_KEY);
     set({ activeJobId: null });
   },
 
-  /**
-   * Tracks ablation keys (e.g. "single_f1_job_20250318_a1b2c3d4") that have
-   * been submitted but haven't completed yet.  Keys are scoped to the parent
-   * job ID.  Lives in the global store so that the state survives page
-   * navigation (component remounts).
-   */
+  // Tracks which ablations have been submitted but haven't finished yet (survives page navigation).
   queuedAblations: {},
 
-  /** Mark an ablation key as queued (true) or clear it (false). */
+  // Mark an ablation as pending or clear it once it completes.
   setAblationQueued: (key, status) =>
     set((state) => ({
       queuedAblations: { ...state.queuedAblations, [key]: status },

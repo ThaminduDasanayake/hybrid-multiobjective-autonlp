@@ -1,14 +1,4 @@
-/**
- * SolutionsTable
- *
- * Renders the Pareto-optimal pipeline solutions as a styled data table.
- * The "knee" solution (best balanced trade-off across all 3 objectives) is
- * highlighted with a distinct badge. Best F1, Best Speed, and Best
- * Interpretability rows get a small label too.
- *
- * Props:
- *   solutions – array from result.pareto_front
- */
+// Table of Pareto-optimal solutions with relative metric coloring and knee-point highlighting.
 
 import { useMemo, useCallback, useState } from "react";
 import { fmt } from "@/utils/formatters.js";
@@ -16,11 +6,7 @@ import { Star, Code } from "lucide-react";
 import { DataTable, SortableHeader } from "@/components/ui/data-table";
 import CodeModal from "./CodeModal.jsx";
 
-/**
- * Unified metric badge — relative coloring within the current Pareto set.
- * norm = 0 → worst for this objective, 1 → best.
- * Pass invert=true for latency (lower raw value = better).
- */
+// Color-coded metric badge — green/orange/gray based on relative rank in the Pareto set (invert for latency).
 const MetricBadge = ({ displayValue, rawValue, min, max, invert = false, decimals = 4 }) => {
   const n = Number(rawValue ?? 0);
   const range = max - min;
@@ -41,7 +27,7 @@ const MetricBadge = ({ displayValue, rawValue, min, max, invert = false, decimal
   );
 };
 
-/** Pipeline gene chip — small rounded tag for categorical values. */
+// Small rounded tag for categorical pipeline values.
 const Chip = ({ label }) => {
   if (!label || label === "None") return <span className="text-xs text-muted-foreground">—</span>;
   return (
@@ -51,7 +37,7 @@ const Chip = ({ label }) => {
   );
 };
 
-/** Small inline label for notable rows. */
+// Inline label for notable rows (knee, best F1, etc.).
 const RowLabel = ({ text, className }) => (
   <span
     className={`ml-1.5 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${className}`}
@@ -63,10 +49,10 @@ const RowLabel = ({ text, className }) => (
 const SolutionsTable = ({ solutions = [], kneePoint = null }) => {
   const [codeModalSolution, setCodeModalSolution] = useState(null);
 
-  // Use a stable identity check (f1 + latency + interp + model) so we can mark rows.
+  // Stable row identity using key metrics so we can highlight notable solutions.
   const id = (s) => `${s.f1_score}_${s.latency}_${s.interpretability}_${s.model}`;
 
-  // Pre-compute data with latency in ms and stable IDs.
+  // Pre-compute latency in ms and attach stable IDs for row matching.
   const tableData = useMemo(() => {
     if (solutions.length === 0) return [];
     const sorted = [...solutions].sort((a, b) => (b.f1_score ?? 0) - (a.f1_score ?? 0));
@@ -78,7 +64,7 @@ const SolutionsTable = ({ solutions = [], kneePoint = null }) => {
     }));
   }, [solutions]);
 
-  // Metric ranges for relative coloring.
+  // Min/max per metric so we can color badges relative to the current set.
   const { f1Range, latRange, interpRange } = useMemo(() => {
     if (tableData.length === 0)
       return {
@@ -97,7 +83,7 @@ const SolutionsTable = ({ solutions = [], kneePoint = null }) => {
     };
   }, [tableData]);
 
-  // Identify notable solutions.
+  // Find the knee, best F1, fastest, and most interpretable solutions.
   const { kneeId, bestF1Id, bestSpeedId, bestInterpId } = useMemo(() => {
     if (tableData.length === 0)
       return { kneeId: null, bestF1Id: null, bestSpeedId: null, bestInterpId: null };
@@ -115,7 +101,7 @@ const SolutionsTable = ({ solutions = [], kneePoint = null }) => {
     };
   }, [tableData, kneePoint]);
 
-  // Column definitions.
+  // Column definitions for the data table.
   const columns = useMemo(
     () => [
       {

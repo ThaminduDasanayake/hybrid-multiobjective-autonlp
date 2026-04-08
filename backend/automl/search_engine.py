@@ -6,7 +6,11 @@ import random
 import time
 from typing import Callable, Iterable, List, Optional
 
+# NumPy: Harris et al. (2020). "Array programming with NumPy." Nature, 585, 357-362.
+# https://doi.org/10.1038/s41586-020-2649-2
 import numpy as np
+# DEAP: Fortin et al. (2012). "DEAP: Evolutionary Algorithms Made Easy." JMLR, 13, 2171-2175.
+# https://jmlr.org/papers/v13/fortin12a.html
 from deap import base, creator, tools
 
 from utils.formatting import format_time

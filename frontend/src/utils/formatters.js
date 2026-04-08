@@ -1,9 +1,4 @@
-/**
- * Display-name helpers for pipeline gene values.
- *
- * Centralised here so ParetoFront3D hover text and SolutionsTable cells
- * always use the same labels.
- */
+// Human-readable labels and formatters for pipeline genes and metrics.
 
 export const MODEL_LABELS = {
   logistic: "Logistic Regression",
@@ -26,7 +21,7 @@ export const DIM_LABELS = {
   pca: "PCA",
 };
 
-/** Format a raw gene value into a human-readable label. */
+// Format a raw gene value into a human-readable label.
 export const fmt = {
   model: (v) => MODEL_LABELS[v] ?? v ?? "—",
   vectorizer: (v) => VECTORIZER_LABELS[v] ?? v ?? "—",
@@ -34,16 +29,16 @@ export const fmt = {
   dim: (v) => (v ? (DIM_LABELS[v] ?? v) : "None"),
   ngram: (v) => v ?? "—",
 
-  /** F1 Score rounded to 4 decimal places. */
+  // F1 score to 4 decimal places.
   f1: (v) => Number(v ?? 0).toFixed(4),
 
-  /** Latency in ms, 4 decimal places (raw value is in seconds). */
+  // Latency in ms (raw is in seconds), 4 decimal places.
   latency_ms: (v) => (Number(v ?? 0) * 1000).toFixed(4),
 
-  /** Interpretability score, 3 decimal places. */
+  // Interpretability score to 3 decimal places.
   interp: (v) => Number(v ?? 0).toFixed(3),
 
-  /** Format a Unix timestamp as a localised date+time string. */
+  // Unix timestamp to a readable local date/time string.
   date: (ts) =>
     ts
       ? new Date(ts * 1000).toLocaleString(undefined, {

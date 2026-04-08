@@ -1,43 +1,13 @@
-/**
- * API client for the T-AutoNLP FastAPI backend.
- *
- * Base URL strategy
- * In development Vite proxies /api/* → localhost:8000 (see vite.config.js),
- * so VITE_API_BASE_URL is intentionally left empty in .env and relative paths
- * work without CORS overhead.
- *
- * In production (Vercel) the proxy does not exist.  Set VITE_API_BASE_URL to
- * your backend's public URL in the Vercel dashboard or in .env.production,
- * and every fetch/EventSource will use it automatically.
- *
- * SSE streams
- * Use the exported `streamUrl(jobId)` helper when constructing an EventSource
- * so the base URL is applied consistently:
- *
- *   const es = new EventSource(streamUrl(jobId));
- */
+// All API calls to the backend. In dev, Vite proxies /api/* to localhost:8000. In prod, set VITE_API_BASE_URL.
 
 import { BASE_URL } from "@/constants.js";
 
-/**
- * Returns the full SSE stream URL for a given job.
- * Use this instead of hardcoding the path in components.
- *
- * @param {string} jobId
- * @returns {string}
- */
+// Builds the full SSE stream URL for a job.
 export function streamUrl(jobId) {
   return `${BASE_URL}/api/jobs/${jobId}/stream`;
 }
 
-/**
- * Internal helper — sends a fetch request and throws a descriptive Error if
- * the response is not 2xx.  Returns parsed JSON on success.
- *
- * @param {string} path
- * @param {RequestInit} [options]
- * @returns {Promise<any>}
- */
+// Fetch wrapper — throws a readable error message on non-2xx responses.
 async function _request(path, options = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
@@ -48,7 +18,7 @@ async function _request(path, options = {}) {
   });
 
   if (!res.ok) {
-    // FastAPI returns { detail: "..." } for errors — surface that message.
+    // Pull the error message out of FastAPI's { detail: "..." } response.
     let message = `HTTP ${res.status}`;
     try {
       const body = await res.json();
@@ -56,7 +26,7 @@ async function _request(path, options = {}) {
       if (typeof detail === "string") {
         message = detail;
       } else if (Array.isArray(detail)) {
-        // Pydantic validation errors: [{ msg, loc, type }, ...]
+        // Pydantic validation errors come as an array — join them into one message.
         message = detail.map((e) => e.msg ?? JSON.stringify(e)).join("; ");
       } else {
         message = JSON.stringify(body);
@@ -70,20 +40,7 @@ async function _request(path, options = {}) {
   return res.json();
 }
 
-/**
- * Start a new AutoML optimization job.
- *
- * @param {{
- *   dataset_name: string,
- *   max_samples?: number,
- *   population_size?: number,
- *   n_generations?: number,
- *   bo_calls?: number,
- *   optimization_mode?: string,
- *   disable_bo?: boolean,
- * }} config
- * @returns {Promise<{ job_id: string }>}
- */
+// Start a new AutoML optimization job.
 export function startJob(config) {
   return _request("/api/jobs", {
     method: "POST",
@@ -91,64 +48,33 @@ export function startJob(config) {
   });
 }
 
-/**
- * Fetch all jobs sorted by start time (newest first).
- *
- * @returns {Promise<Record<string, object>>}
- */
+// Fetch all jobs, newest first.
 export function getJobs() {
   return _request("/api/jobs");
 }
 
-/**
- * Fetch the result for a completed job.
- * Throws if the job has not finished or no result exists.
- *
- * @param {string} jobId
- * @returns {Promise<object>}
- */
+// Fetch the result for a completed job.
 export function getJobResult(jobId) {
   return _request(`/api/jobs/${jobId}/result`);
 }
 
-/**
- * Terminate a running or queued job.
- *
- * @param {string} jobId
- * @returns {Promise<{ message: string }>}
- */
+// Terminate a running or queued job.
 export function cancelJob(jobId) {
   return _request(`/api/jobs/${jobId}`, { method: "DELETE" });
 }
 
-/**
- * Permanently delete a completed/failed/terminated job and its data.
- *
- * @param {string} jobId
- * @returns {Promise<{ message: string }>}
- */
+// Permanently delete a job and all its stored data.
 export function deleteJob(jobId) {
   return _request(`/api/jobs/${jobId}/data`, { method: "DELETE" });
 }
 
-/**
- * Fetch metrics from completed ablation studies.
- * When parentJobId is provided, only ablations for that job are returned.
- *
- * @param {string} [parentJobId]
- * @returns {Promise<Record<string, object>>}
- */
+// Fetch ablation study results, optionally filtered to a single parent job.
 export function getAblations(parentJobId) {
   const params = parentJobId ? `?parent_job_id=${encodeURIComponent(parentJobId)}` : "";
   return _request(`/api/ablations${params}`);
 }
 
-/**
- * Queue an ablation study run (fire-and-forget, server returns HTTP 202).
- *
- * @param {{ mode: string, disable_bo: boolean, parent_job_id: string }} config
- * @returns {Promise<{ status: string, mode: string, parent_job_id: string, disable_bo: boolean }>}
- */
+// Queue an ablation study run (fire-and-forget).
 export function runAblation(config) {
   return _request("/api/ablations", {
     method: "POST",
@@ -156,22 +82,12 @@ export function runAblation(config) {
   });
 }
 
-/**
- * Fetch per-generation hypervolume history for convergence plotting.
- *
- * @param {string} jobId
- * @returns {Promise<Array<{ generation: number, hypervolume: number }>>}
- */
+// Fetch per-generation hypervolume data for the convergence chart.
 export function getHypervolumeHistory(jobId) {
   return _request(`/api/jobs/${jobId}/hypervolume-history`);
 }
 
-/**
- * Submit user feedback.
- *
- * @param {{ name?: string, message: string }} feedback
- * @returns {Promise<{ message: string, id: string }>}
- */
+// Submit user feedback.
 export function submitFeedback(feedback) {
   return _request("/api/feedback", {
     method: "POST",

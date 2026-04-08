@@ -69,17 +69,7 @@ def delete_job_data(job_id: str):
 
 @router.get("/jobs/{job_id}/stream")
 async def stream_job(job_id: str, request: Request):
-    """Server-Sent Events (SSE) stream for live job progress.
-
-    The frontend subscribes to this endpoint immediately after submitting a job.
-    It receives a push notification every time the job status or logs change,
-    without needing to poll. The stream closes automatically when the job reaches
-    a terminal state (completed / failed / terminated) or when the client disconnects.
-
-    Diff-based emission: we compare each payload to the previous one and only send
-    when something actually changed. This avoids flooding the frontend with identical
-    frames during long-running BO evaluations where MongoDB hasn't been updated yet.
-    """
+    """SSE endpoint that streams real-time job progress and logs."""
 
     async def event_generator():
         last_payload_json: str | None = None

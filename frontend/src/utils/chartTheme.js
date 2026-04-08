@@ -1,9 +1,4 @@
-/**
- * Shared Plotly chart theming for dark-mode UI.
- *
- * All chart components import from here instead of hardcoding hex colors
- * and layout objects individually.
- */
+// Shared Plotly theme for dark mode — import here instead of hardcoding colors per chart.
 
 // Color Palette
 export const COLORS = {

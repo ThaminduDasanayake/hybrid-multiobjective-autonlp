@@ -10,12 +10,6 @@ service = AblationService()
 
 @router.post("/ablations", status_code=202)
 def start_ablation(config: AblationConfig):
-    """Submit an ablation study; inherits config from the parent job.
-
-    Idempotent: returns 200 if a non-failed result already exists.
-    Duplicate-submission prevention uses a MongoDB atomic update_one so it
-    is safe across multiple Uvicorn workers (unlike an in-process set).
-    """
     return service.start_ablation(config)
 
 

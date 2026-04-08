@@ -5,6 +5,8 @@ Constructs scikit-learn Pipeline objects from discrete genome arrays and continu
 from typing import Any, Dict, Optional
 
 import numpy as np
+# scikit-learn: Pedregosa et al. (2011). "Scikit-learn: Machine Learning in Python." JMLR, 12, 2825-2830.
+# https://jmlr.org/papers/v12/pedregosa11a.html
 from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.feature_selection import SelectKBest, f_classif

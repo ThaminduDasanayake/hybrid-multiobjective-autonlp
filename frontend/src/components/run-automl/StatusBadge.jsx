@@ -1,12 +1,7 @@
 import { Badge } from "../ui/badge.jsx";
 import { LABEL_MAP, STYLE_MAP } from "@/constants.js";
 
-/**
- * StatusBadge — maps a job status string to a shadcn <Badge> variant.
- *
- * Props:
- *   status – "created" | "running" | "completed" | "failed" | "terminated"
- */
+// Maps a job status string to a colored badge.
 
 const StatusBadge = ({ status }) => {
   const { variant, className } = STYLE_MAP[status] ?? STYLE_MAP.created;

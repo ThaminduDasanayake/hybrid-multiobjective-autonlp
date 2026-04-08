@@ -6,7 +6,11 @@ import time
 from typing import Any, Dict, Optional
 
 import numpy as np
+# scikit-learn: Pedregosa et al. (2011). "Scikit-learn: Machine Learning in Python." JMLR, 12, 2825-2830.
+# https://jmlr.org/papers/v12/pedregosa11a.html
 from sklearn.model_selection import cross_validate
+# scikit-optimize: Head et al. (2018). scikit-optimize/scikit-optimize. Zenodo.
+# https://doi.org/10.5281/zenodo.1207017
 from skopt import gp_minimize
 from skopt.space import Categorical, Integer, Real
 from skopt.utils import use_named_args

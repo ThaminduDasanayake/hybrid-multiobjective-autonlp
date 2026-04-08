@@ -5,6 +5,8 @@ Computes summary analytics for multi-objective optimization, including hypervolu
 from typing import Any, Dict, List
 
 import numpy as np
+# pymoo: Blank & Deb (2020). "pymoo: Multi-Objective Optimization in Python." IEEE Access, 8, 89497-89509.
+# https://doi.org/10.1109/ACCESS.2020.2990567
 from pymoo.indicators.hv import HV
 
 from automl.pareto import get_pareto_front, is_dominated

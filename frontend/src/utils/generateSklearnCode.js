@@ -1,11 +1,4 @@
-/**
- * generateSklearnCode
- *
- * Accepts a Pareto-optimal solution config object and returns formatted
- * Python code that reconstructs the sklearn Pipeline.
- *
- * Mirrors backend/automl/pipeline_builder.py exactly.
- */
+// Generates a runnable Python sklearn Pipeline script from a Pareto-optimal solution config.
 
 export function generateSklearnCode(config, datasetName = "ag_news") {
   const {
@@ -18,7 +11,7 @@ export function generateSklearnCode(config, datasetName = "ag_news") {
     params = {},
   } = config;
 
-  // ── Parse ngram_range ("1-2" → (1, 2)) ────────────────────────────
+  // Parse ngram_range string "1-2" into integers (1, 2).
   let minN = 1,
     maxN = 1;
   if (ngram_range) {
@@ -33,14 +26,14 @@ export function generateSklearnCode(config, datasetName = "ag_news") {
     }
   }
 
-  // ── Parse max_features ─────────────────────────────────────────────
+  // Parse max_features, falling back to None if missing or invalid.
   const maxFeat = (() => {
     if (!max_features || String(max_features) === "None") return "None";
     const parsed = parseInt(max_features, 10);
     return Number.isNaN(parsed) ? "None" : String(parsed);
   })();
 
-  // ── Collect imports ────────────────────────────────────────────────
+  // Collect only the imports needed for this particular pipeline config.
   const imports = ["from sklearn.pipeline import Pipeline"];
 
   // Vectorizer
@@ -75,7 +68,7 @@ export function generateSklearnCode(config, datasetName = "ag_news") {
     imports.push("from sklearn.svm import LinearSVC");
   }
 
-  // ── Build pipeline steps ───────────────────────────────────────────
+  // Build the pipeline steps in order: vectorizer → scaler → dim reduction → classifier.
   const steps = [];
 
   // 1. Vectorizer
@@ -152,7 +145,7 @@ export function generateSklearnCode(config, datasetName = "ag_news") {
     );
   }
 
-  // ── Assemble output ────────────────────────────────────────────────
+  // Assemble the final script.
   const pipelineCode = [...imports, "", "", "pipeline = Pipeline([", ...steps, "])"].join("\n");
 
   // Handle the banking77 mirror edge case safely
@@ -198,10 +191,7 @@ if __name__ == "__main__":
   return pipelineCode + "\n" + usageText;
 }
 
-/**
- * Format a number for Python: ensure floats always show a decimal point.
- * e.g. 1 → "1.0", 0.5 → "0.5"
- */
+// Format a number for Python — integers get a .0 suffix so they're valid floats.
 function fmt(value) {
   const n = Number(value);
   return Number.isInteger(n) ? `${n}.0` : String(n);

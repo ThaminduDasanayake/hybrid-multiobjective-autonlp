@@ -1,14 +1,4 @@
-/**
- * CodeModal
- *
- * Displays the generated Scikit-Learn pipeline code for a selected
- * Pareto-optimal solution inside a styled Dialog.
- *
- * Props:
- *   open     – boolean controlling dialog visibility
- *   onClose  – callback to close the dialog
- *   solution – the solution config object (from pareto_front)
- */
+// Dialog that shows the generated sklearn pipeline code for a selected solution.
 
 import { useState, useCallback, useMemo } from "react";
 import { Copy, Check } from "lucide-react";

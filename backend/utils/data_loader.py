@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 import numpy as np
+# HuggingFace Datasets: Lhoest et al. (2021). "Datasets: A Community Library for NLP." EMNLP 2021 (demos).
+# https://aclanthology.org/2021.emnlp-demo.21
 from datasets import load_dataset
 from sklearn.datasets import fetch_20newsgroups
 

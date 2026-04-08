@@ -1,14 +1,6 @@
 import { Card, CardContent } from "../ui/card.jsx";
 
-/**
- * StatCard — live-run metric tile used in LiveTracker.
- *
- * Props:
- *   label  – uppercase metric name
- *   value  – formatted string to display
- *   unit   – optional unit suffix (smaller weight)
- *   dimmed – true when data has not yet arrived (fades the value)
- */
+// Metric tile for the live run tracker.
 const StatCard = ({ label, value, unit, dimmed = false }) => {
   return (
     <Card>

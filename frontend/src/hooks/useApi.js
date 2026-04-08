@@ -1,14 +1,4 @@
-/**
- * React Query hooks for the T-AutoNLP API.
- *
- * Query key hierarchy
- *   ["jobs"]                  — full job list (shared between History and Experiments pages)
- *   ["job-result", jobId]     — result.json for one completed job
- *   ["ablations", parentJobId] — ablation study results (scoped to parent job or "all")
- *
- * Mutation hooks invalidate the relevant query keys on success so that
- * dependent components re-render automatically without manual state updates.
- */
+// React Query hooks for all API calls — mutations auto-invalidate the relevant cache keys on success.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -25,57 +15,31 @@ import {
 
 // query hooks
 
-/**
- * Fetches all jobs and filters to completed ones only.
- * Both HistoryAnalysis and Experiments share this cache entry.
- *
- * @returns {import("@tanstack/react-query").UseQueryResult<Record<string, object>>}
- */
+// Fetches completed jobs only (shared cache between History and Experiments).
 export function useJobs() {
   return useQuery({
     queryKey: ["jobs"],
     queryFn: async () => {
       const data = await getJobs();
-      // Keep only completed jobs — incomplete runs have no result.json.
+        // Only include completed jobs — others don't have a result yet.
       return Object.fromEntries(Object.entries(data).filter(([, s]) => s.status === "completed"));
     },
-    // 15 s is long enough that navigating between pages doesn't re-fetch,
-    // but short enough that a job completing in the background is seen soon.
+    // 15s keeps navigation snappy but still picks up background completions quickly.
     staleTime: 15_000,
   });
 }
 
-/**
- * Fetches the result.json for a single completed job.
- * The query is disabled until a jobId is provided.
- *
- * @param {string | null | undefined} jobId
- * @returns {import("@tanstack/react-query").UseQueryResult<object>}
- */
+// Fetches the result for a single completed job (disabled until a jobId is given).
 export function useJobResult(jobId) {
   return useQuery({
     queryKey: ["job-result", jobId],
     queryFn: () => getJobResult(jobId),
-    // Only run when a job is actually selected.
     enabled: !!jobId,
-    // Completed job results are immutable — never re-fetch unless explicitly
-    // invalidated (e.g. after a cache-clear).
-    staleTime: Infinity,
+    staleTime: Infinity, // Results are immutable once complete, so never re-fetch.
   });
 }
 
-/**
- * Fetches ablation study results.
- *
- * When `parentJobId` is provided, only ablations for that job are fetched
- * (single-document lookup instead of a full collection scan).
- *
- * Pass `refetchInterval` to enable automatic polling while ablation jobs are
- * still running (Experiments uses this while queued jobs are pending).
- *
- * @param {{ refetchInterval?: number | false, parentJobId?: string }} [opts]
- * @returns {import("@tanstack/react-query").UseQueryResult<Record<string, object>>}
- */
+// Fetches ablation results. Pass refetchInterval to poll while jobs are still running.
 export function useAblations({ refetchInterval = false, parentJobId } = {}) {
   return useQuery({
     queryKey: ["ablations", parentJobId ?? "all"],
@@ -85,12 +49,7 @@ export function useAblations({ refetchInterval = false, parentJobId } = {}) {
   });
 }
 
-/**
- * Fetches per-generation hypervolume history for a completed job.
- *
- * @param {string | null | undefined} jobId
- * @returns {import("@tanstack/react-query").UseQueryResult<Array<{ generation: number, hypervolume: number }>>}
- */
+// Fetches per-generation hypervolume history for the convergence chart.
 export function useHypervolumeHistory(jobId) {
   return useQuery({
     queryKey: ["hv-history", jobId],
@@ -102,13 +61,7 @@ export function useHypervolumeHistory(jobId) {
 
 // mutation hooks
 
-/**
- * Starts a new AutoML job.
- * Invalidates the job list on success so the Run page can redirect and
- * History can pick up the new entry.
- *
- * @returns {import("@tanstack/react-query").UseMutationResult}
- */
+// Starts a new AutoML job and refreshes the job list on success.
 export function useStartJob() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -119,12 +72,7 @@ export function useStartJob() {
   });
 }
 
-/**
- * Terminates a running job.
- * Invalidates the job list so status badges update immediately.
- *
- * @returns {import("@tanstack/react-query").UseMutationResult}
- */
+// Terminates a running job and refreshes the job list.
 export function useCancelJob() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -135,12 +83,7 @@ export function useCancelJob() {
   });
 }
 
-/**
- * Permanently deletes a completed job and its data.
- * Invalidates the job list so the table updates immediately.
- *
- * @returns {import("@tanstack/react-query").UseMutationResult}
- */
+// Permanently deletes a job and clears its cached result.
 export function useDeleteJob() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -153,12 +96,7 @@ export function useDeleteJob() {
   });
 }
 
-/**
- * Queues an ablation study run.
- * Invalidates the ablations cache on success so the table refreshes.
- *
- * @returns {import("@tanstack/react-query").UseMutationResult}
- */
+// Queues an ablation study and refreshes the ablations list on success.
 export function useRunAblation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -169,11 +107,7 @@ export function useRunAblation() {
   });
 }
 
-/**
- * Submits user feedback.
- *
- * @returns {import("@tanstack/react-query").UseMutationResult}
- */
+// Submits user feedback.
 export function useSubmitFeedback() {
   return useMutation({
     mutationFn: submitFeedback,
