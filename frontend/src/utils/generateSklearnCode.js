@@ -152,9 +152,7 @@ export function generateSklearnCode(config, datasetName = "ag_news") {
   const hfDataset = datasetName === "banking77" ? "mteb/banking77" : datasetName;
 
   const usageText = `
-# ==========================================
 # Full Execution & Evaluation Script
-# ==========================================
 if __name__ == "__main__":
     from datasets import load_dataset
     from sklearn.metrics import classification_report
@@ -174,13 +172,22 @@ if __name__ == "__main__":
     train_time = time.time() - start_time
 
     print(f"[3/3] Evaluating on {len(X_test)} unseen samples...")
+    start_inference_time = time.time()
     predictions = pipeline.predict(X_test)
+    end_inference_time = time.time()
+    
+    total_inference_time = end_inference_time - start_inference_time
+    latency_ms = (total_inference_time / len(X_test)) * 1000
     
     print("\\n" + "="*50)
     print("FINAL MODEL REPORT")
     print("="*50)
     print(f"Training Time: {train_time:.2f} seconds")
+    print(f"Inference Latency: {latency_ms:.4f} ms / sample")
+    print("-"*50)
     print(classification_report(y_test, predictions, digits=4))
+    
+    
     
     # Optional: Save the model
     # import joblib

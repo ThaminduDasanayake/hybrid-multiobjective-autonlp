@@ -1,14 +1,14 @@
 // Dialog that shows the generated sklearn pipeline code for a selected solution.
 
-import { useState, useCallback, useMemo } from "react";
-import { Copy, Check } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button.jsx";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog.jsx";
 import { generateSklearnCode } from "@/utils/generateSklearnCode.js";
 import { fmt } from "@/utils/formatters.js";
